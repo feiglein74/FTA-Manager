@@ -1,0 +1,23 @@
+# PowerShell
+*.ps1xml
+
+# Test Results
+TestResults/
+*.trx
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Temporäre Dateien
+*.tmp
+*~
