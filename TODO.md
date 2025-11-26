@@ -2,7 +2,6 @@
 
 ## Offen
 
-- [ ] Pester-Tests erstellen
 - [ ] PowerShell Gallery Veröffentlichung vorbereiten
 - [ ] CI/CD Pipeline einrichten (GitHub Actions)
 - [ ] Beispiel-Skripte für häufige Anwendungsfälle erstellen
@@ -16,6 +15,7 @@
 
 ## Erledigt
 
+- [x] Pester-Tests erstellen (52 Tests)
 - [x] Kern-Hash-Algorithmus implementieren
 - [x] FTA-Funktionen (Get/Set/Remove/GetAll)
 - [x] PTA-Funktionen (Get/Set/Remove/GetAll)
