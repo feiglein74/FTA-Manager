@@ -37,6 +37,9 @@ function Get-Hash {
     <#
     .SYNOPSIS
         Computes the UserChoice hash using the Windows algorithm
+    .DESCRIPTION
+        Implementation based on PS-SFTA (https://github.com/DanysysTeam/PS-SFTA)
+        Uses two-pass algorithm with proper 32-bit integer truncation
     #>
     [CmdletBinding()]
     param(
@@ -82,45 +85,98 @@ function Get-Hash {
     $base64Hash = ""
 
     if ($length -gt 1) {
+        # Initialize map for first pass
         $map = @{
-            PESSION_KEY0 = (Get-Long $bytesMD5) -bor 1
-            PESSION_KEY1 = ((Get-Long $bytesMD5 4) -bor 1)
-            PESSION_KEY2 = (Get-Long $bytesMD5 8)
-            PESSION_KEY3 = (Get-Long $bytesMD5 12)
+            PDATA = 0; CACHE = 0; COUNTER = 0; INDEX = 0
+            MD51 = 0; MD52 = 0; OUTHASH1 = 0; OUTHASH2 = 0
+            R0 = 0; R1 = @(0, 0); R2 = @(0, 0); R3 = 0
+            R4 = @(0, 0); R5 = @(0, 0); R6 = @(0, 0); R7 = @(0, 0)
         }
 
-        $AHESSION_KEY0 = [long]($map.PESSION_KEY0 + [long]($map.PESSION_KEY2))
-        $AHESSION_KEY1 = [long]($map.PESSION_KEY1 + [long]($map.PESSION_KEY3))
+        $map.CACHE = 0
+        $map.OUTHASH1 = 0
+        $map.PDATA = 0
+        $map.MD51 = (((Get-Long $bytesMD5) -bor 1) + 0x69FB0000L)
+        $map.MD52 = ((Get-Long $bytesMD5 4) -bor 1) + 0x13DB0000L
+        $map.INDEX = Get-ShiftRight ($length - 2) 1
+        $map.COUNTER = $map.INDEX + 1
 
-        $index = $length - 2
-        $array0 = (Get-Long $bytesBaseInfo ($index * 4))
-        $array1 = (Get-Long $bytesBaseInfo (($index * 4) + 4))
-
-        $BHESSION_KEY0 = 0
-        $BHESSION_KEY1 = 0
-
-        [long]$CHESSION_KEY0 = $AHESSION_KEY0 -bxor $array0
-        [long]$CHESSION_KEY1 = $AHESSION_KEY1 -bxor $array1
-
-        for ($index--; $index -ge 0; $index--) {
-            [long]$DHESSION_KEY0 = [long]0x0E79A9C1L * [long](Get-ShiftRight ([long]($CHESSION_KEY0 * [long]$map.PESSION_KEY0)) 16) -bxor
-            [long](Get-ShiftRight ([long]($CHESSION_KEY1 * [long]$map.PESSION_KEY1)) 16) -bxor $CHESSION_KEY0 -bxor $CHESSION_KEY1
-
-            $array0 = Get-Long $bytesBaseInfo ($index * 4)
-            $array1 = Get-Long $bytesBaseInfo (($index * 4) + 4)
-
-            [long]$DHESSION_KEY1 = [long]0x0E79A9C1L * $DHESSION_KEY0
-
-            $CHESSION_KEY0 = $AHESSION_KEY0 -bxor $array0 -bxor $DHESSION_KEY1
-            $CHESSION_KEY1 = $AHESSION_KEY1 -bxor $array1 -bxor (Get-ShiftRight $DHESSION_KEY1 16)
+        # First pass
+        while ($map.COUNTER) {
+            $map.R0 = Convert-Int32 ((Get-Long $bytesBaseInfo $map.PDATA) + [long]$map.OUTHASH1)
+            $map.R1[0] = Convert-Int32 (Get-Long $bytesBaseInfo ($map.PDATA + 4))
+            $map.PDATA = $map.PDATA + 8
+            $map.R2[0] = Convert-Int32 (($map.R0 * ([long]$map.MD51)) - (0x10FA9605L * ((Get-ShiftRight $map.R0 16))))
+            $map.R2[1] = Convert-Int32 ((0x79F8A395L * ([long]$map.R2[0])) + (0x689B6B9FL * (Get-ShiftRight $map.R2[0] 16)))
+            $map.R3 = Convert-Int32 ((0xEA970001L * $map.R2[1]) - (0x3C101569L * (Get-ShiftRight $map.R2[1] 16)))
+            $map.R4[0] = Convert-Int32 ($map.R3 + $map.R1[0])
+            $map.R5[0] = Convert-Int32 ($map.CACHE + $map.R3)
+            $map.R6[0] = Convert-Int32 (($map.R4[0] * [long]$map.MD52) - (0x3CE8EC25L * (Get-ShiftRight $map.R4[0] 16)))
+            $map.R6[1] = Convert-Int32 ((0x59C3AF2DL * $map.R6[0]) - (0x2232E0F1L * (Get-ShiftRight $map.R6[0] 16)))
+            $map.OUTHASH1 = Convert-Int32 ((0x1EC90001L * $map.R6[1]) + (0x35BD1EC9L * (Get-ShiftRight $map.R6[1] 16)))
+            $map.OUTHASH2 = Convert-Int32 ([long]$map.R5[0] + [long]$map.OUTHASH1)
+            $map.CACHE = ([long]$map.OUTHASH2)
+            $map.COUNTER = $map.COUNTER - 1
         }
 
-        $BHESSION_KEY0 = Convert-Int32 ([long]0x0E79A9C1L * [long](Get-ShiftRight ([long]($CHESSION_KEY0 * [long]$map.PESSION_KEY0)) 16) -bxor
-            (Get-ShiftRight ([long]($CHESSION_KEY1 * [long]$map.PESSION_KEY1)) 16) -bxor $CHESSION_KEY0 -bxor $CHESSION_KEY1)
+        # Store first pass results
+        [byte[]]$outHash = @(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+        [byte[]]$buffer = [BitConverter]::GetBytes($map.OUTHASH1)
+        $buffer.CopyTo($outHash, 0)
+        $buffer = [BitConverter]::GetBytes($map.OUTHASH2)
+        $buffer.CopyTo($outHash, 4)
 
-        $BHESSION_KEY1 = Convert-Int32 ([long]0x0E79A9C1L * [long]$BHESSION_KEY0)
+        # Reinitialize map for second pass
+        $map = @{
+            PDATA = 0; CACHE = 0; COUNTER = 0; INDEX = 0
+            MD51 = 0; MD52 = 0; OUTHASH1 = 0; OUTHASH2 = 0
+            R0 = 0; R1 = @(0, 0); R2 = @(0, 0); R3 = 0
+            R4 = @(0, 0); R5 = @(0, 0); R6 = @(0, 0); R7 = @(0, 0)
+        }
 
-        $base64Hash = [Convert]::ToBase64String([BitConverter]::GetBytes([long]$BHESSION_KEY1 -bxor (Get-ShiftRight $BHESSION_KEY1 16)))
+        $map.CACHE = 0
+        $map.OUTHASH1 = 0
+        $map.PDATA = 0
+        $map.MD51 = ((Get-Long $bytesMD5) -bor 1)
+        $map.MD52 = ((Get-Long $bytesMD5 4) -bor 1)
+        $map.INDEX = Get-ShiftRight ($length - 2) 1
+        $map.COUNTER = $map.INDEX + 1
+
+        # Second pass
+        while ($map.COUNTER) {
+            $map.R0 = Convert-Int32 ((Get-Long $bytesBaseInfo $map.PDATA) + ([long]$map.OUTHASH1))
+            $map.PDATA = $map.PDATA + 8
+            $map.R1[0] = Convert-Int32 ($map.R0 * [long]$map.MD51)
+            $map.R1[1] = Convert-Int32 ((0xB1110000L * $map.R1[0]) - (0x30674EEFL * (Get-ShiftRight $map.R1[0] 16)))
+            $map.R2[0] = Convert-Int32 ((0x5B9F0000L * $map.R1[1]) - (0x78F7A461L * (Get-ShiftRight $map.R1[1] 16)))
+            $map.R2[1] = Convert-Int32 ((0x12CEB96DL * (Get-ShiftRight $map.R2[0] 16)) - (0x46930000L * $map.R2[0]))
+            $map.R3 = Convert-Int32 ((0x1D830000L * $map.R2[1]) + (0x257E1D83L * (Get-ShiftRight $map.R2[1] 16)))
+            $map.R4[0] = Convert-Int32 ([long]$map.MD52 * ([long]$map.R3 + (Get-Long $bytesBaseInfo ($map.PDATA - 4))))
+            $map.R4[1] = Convert-Int32 ((0x16F50000L * $map.R4[0]) - (0x5D8BE90BL * (Get-ShiftRight $map.R4[0] 16)))
+            $map.R5[0] = Convert-Int32 ((0x96FF0000L * $map.R4[1]) - (0x2C7C6901L * (Get-ShiftRight $map.R4[1] 16)))
+            $map.R5[1] = Convert-Int32 ((0x2B890000L * $map.R5[0]) + (0x7C932B89L * (Get-ShiftRight $map.R5[0] 16)))
+            $map.OUTHASH1 = Convert-Int32 ((0x9F690000L * $map.R5[1]) - (0x405B6097L * (Get-ShiftRight ($map.R5[1]) 16)))
+            $map.OUTHASH2 = Convert-Int32 ([long]$map.OUTHASH1 + $map.CACHE + $map.R3)
+            $map.CACHE = ([long]$map.OUTHASH2)
+            $map.COUNTER = $map.COUNTER - 1
+        }
+
+        # Store second pass results
+        $buffer = [BitConverter]::GetBytes($map.OUTHASH1)
+        $buffer.CopyTo($outHash, 8)
+        $buffer = [BitConverter]::GetBytes($map.OUTHASH2)
+        $buffer.CopyTo($outHash, 12)
+
+        # Combine results
+        [byte[]]$outHashBase = @(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+        $hashValue1 = ((Get-Long $outHash 8) -bxor (Get-Long $outHash))
+        $hashValue2 = ((Get-Long $outHash 12) -bxor (Get-Long $outHash 4))
+
+        $buffer = [BitConverter]::GetBytes($hashValue1)
+        $buffer.CopyTo($outHashBase, 0)
+        $buffer = [BitConverter]::GetBytes($hashValue2)
+        $buffer.CopyTo($outHashBase, 4)
+        $base64Hash = [Convert]::ToBase64String($outHashBase)
     }
 
     return $base64Hash
