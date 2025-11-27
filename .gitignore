@@ -21,3 +21,4 @@ Thumbs.db
 # Temporäre Dateien
 *.tmp
 *~
+.claude/
