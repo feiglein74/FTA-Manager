@@ -98,6 +98,21 @@ Windows 10/11 (ab Februar 2022) enthält UCPD, das programmatische Änderungen a
 - `.pdf` Dateien
 - `http` und `https` Protokolle
 
+### Warum schützt Windows genau diese Zuordnungen?
+
+**Browser (http/https)** sind das Haupteinfallstor für Cyberangriffe:
+- Malware könnte heimlich einen manipulierten Browser als Standard setzen
+- Umleitung auf Phishing-Seiten ohne dass der Nutzer es bemerkt
+- Abfangen von Login-Daten, Banking-Informationen, etc.
+- Man-in-the-Middle-Angriffe durch gefälschte Browser
+
+**PDF** ist der zweitgrößte Angriffsvektor:
+- PDFs können JavaScript, eingebettete Objekte und Links enthalten
+- Malware könnte einen unsicheren oder manipulierten PDF-Reader setzen
+- Exploit-Kits nutzen häufig präparierte PDF-Dateien
+
+Ohne UCPD könnte Schadsoftware sich als Browser registrieren, alle Web-Anfragen abfangen und Credentials stehlen - daher gelten diese Zuordnungen als "kritische Infrastruktur".
+
 ### UCPD-Status prüfen
 
 ```powershell
@@ -138,6 +153,16 @@ Applications\code.exe       - VS Code
 
 ## Technische Details
 
+### Registry-Pfade
+
+Die Zuordnungen werden in folgenden Registry-Pfaden gespeichert:
+
+- **Dateiendungen**: `HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoice`
+- **Protokolle**: `HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\{protocol}\UserChoice`
+- **Toast-Benachrichtigungen**: `HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ApplicationAssociationToasts`
+
+### Hash-Algorithmus
+
 Das Modul berechnet den UserChoice-Hash nach folgendem Algorithmus:
 
 1. Eingabe: `extension + userSid + progId + timestamp + userExperienceString`
@@ -147,6 +172,13 @@ Das Modul berechnet den UserChoice-Hash nach folgendem Algorithmus:
 5. Base64-Kodierung des Ergebnisses
 
 Der Magic String ist: `"User Choice set via Windows User Experience {D18B6DD5-6124-4341-9318-804003BAFA0B}"`
+
+### Wichtige Hinweise zur Implementierung
+
+- Der Hash-Algorithmus ist **zeit-sensitiv** (verwendet aktuelle Minute, abgerundet)
+- Hash und ProgId müssen **atomar** geschrieben werden (Key erst löschen, dann neu erstellen)
+- Ein `ApplicationAssociationToasts`-Eintrag ist erforderlich, damit die Zuordnung funktioniert
+- Die Eingabe für den Hash muss immer **lowercase** sein
 
 ## Referenzen
 
