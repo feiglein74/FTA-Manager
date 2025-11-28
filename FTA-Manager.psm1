@@ -402,16 +402,35 @@ function Set-RegistryUserChoice {
     }
 
     # Use Win32 API for setting values (more reliable across Windows versions)
+    $writeError = $null
     try {
         [Microsoft.Win32.Registry]::SetValue($regPathWin32, "Hash", $Hash)
         [Microsoft.Win32.Registry]::SetValue($regPathWin32, "ProgId", $ProgId)
     }
     catch {
-        # Fallback to PowerShell method
-        New-Item -Path $regPath -Force | Out-Null
-        New-ItemProperty -Path $regPath -Name "ProgId" -Value $ProgId -PropertyType String -Force | Out-Null
-        New-ItemProperty -Path $regPath -Name "Hash" -Value $Hash -PropertyType String -Force | Out-Null
+        # Fallback to PowerShell method with explicit error handling
+        try {
+            New-Item -Path $regPath -Force -ErrorAction Stop | Out-Null
+            New-ItemProperty -Path $regPath -Name "ProgId" -Value $ProgId -PropertyType String -Force -ErrorAction Stop | Out-Null
+            New-ItemProperty -Path $regPath -Name "Hash" -Value $Hash -PropertyType String -Force -ErrorAction Stop | Out-Null
+        }
+        catch {
+            $writeError = $_
+        }
     }
+
+    # Verify the write was successful
+    if ($writeError) {
+        throw "Failed to write registry: $($writeError.Exception.Message)"
+    }
+
+    # Double-check by reading back
+    $verification = Get-RegistryUserChoice -Extension $Extension -Protocol:$Protocol
+    if (-not $verification -or $verification.ProgId -ne $ProgId) {
+        throw "Registry verification failed: UserChoice was not set correctly (expected '$ProgId', got '$($verification.ProgId)')"
+    }
+
+    return $true
 }
 
 function Set-ApplicationAssociationToast {
@@ -512,7 +531,7 @@ function Set-FTA {
     }
 
     # Check for UCPD-protected extensions
-    $protectedExtensions = @(".pdf")
+    $protectedExtensions = @(".pdf", ".htm", ".html")
     if ($Extension -in $protectedExtensions -and (Test-UCPDEnabled) -and -not $Force) {
         Write-Warning "Extension '$Extension' is protected by UCPD. Use Disable-UCPD (requires Admin + Reboot) or -Force to attempt anyway."
         return [PSCustomObject]@{
