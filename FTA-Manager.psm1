@@ -335,6 +335,189 @@ function Enable-UCPD {
     }
 }
 
+function Test-IsWindowsServer {
+    <#
+    .SYNOPSIS
+        Tests if the current system is Windows Server
+
+    .DESCRIPTION
+        Windows Server does NOT have UCPD installed.
+        All file type and protocol associations can be set without restrictions.
+
+    .EXAMPLE
+        if (Test-IsWindowsServer) { "No UCPD restrictions here!" }
+    #>
+    [CmdletBinding()]
+    param()
+
+    $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+    if ($osInfo) {
+        # ProductType: 1 = Workstation, 2 = Domain Controller, 3 = Server
+        return ($osInfo.ProductType -ne 1)
+    }
+
+    # Fallback: check OS caption
+    $caption = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction SilentlyContinue).ProductName
+    return ($caption -like "*Server*")
+}
+
+function Get-UCPDScheduledTask {
+    <#
+    .SYNOPSIS
+        Gets the UCPD velocity scheduled task status
+
+    .DESCRIPTION
+        The 'UCPD velocity' scheduled task can re-enable UCPD after it has been disabled.
+        This function checks its current state.
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        $task = Get-ScheduledTask -TaskName "UCPD velocity" -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -ErrorAction SilentlyContinue
+        if ($task) {
+            return [PSCustomObject]@{
+                Exists  = $true
+                State   = $task.State
+                Enabled = ($task.State -ne 'Disabled')
+                TaskPath = "\Microsoft\Windows\AppxDeploymentClient\UCPD velocity"
+            }
+        }
+    }
+    catch {}
+
+    return [PSCustomObject]@{
+        Exists   = $false
+        State    = $null
+        Enabled  = $false
+        TaskPath = $null
+    }
+}
+
+function Disable-UCPDScheduledTask {
+    <#
+    .SYNOPSIS
+        Disables the UCPD velocity scheduled task (requires Admin)
+
+    .DESCRIPTION
+        The 'UCPD velocity' task can re-enable UCPD after Windows updates.
+        Disabling this task prevents UCPD from being automatically re-enabled.
+
+        WARNING: This should only be done in controlled environments where
+        UCPD protection is not desired.
+
+    .EXAMPLE
+        Disable-UCPDScheduledTask
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $isAdmin) {
+        Write-Error "Administrator privileges required to disable UCPD scheduled task"
+        return $false
+    }
+
+    if ($PSCmdlet.ShouldProcess("UCPD velocity", "Disable Scheduled Task")) {
+        try {
+            Disable-ScheduledTask -TaskName "UCPD velocity" -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -ErrorAction Stop | Out-Null
+            Write-Warning "UCPD velocity scheduled task disabled. UCPD will no longer be automatically re-enabled."
+            return $true
+        }
+        catch {
+            Write-Error "Failed to disable UCPD scheduled task: $_"
+            return $false
+        }
+    }
+}
+
+function Enable-UCPDScheduledTask {
+    <#
+    .SYNOPSIS
+        Re-enables the UCPD velocity scheduled task (requires Admin)
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $isAdmin) {
+        Write-Error "Administrator privileges required to enable UCPD scheduled task"
+        return $false
+    }
+
+    if ($PSCmdlet.ShouldProcess("UCPD velocity", "Enable Scheduled Task")) {
+        try {
+            Enable-ScheduledTask -TaskName "UCPD velocity" -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -ErrorAction Stop | Out-Null
+            Write-Verbose "UCPD velocity scheduled task enabled."
+            return $true
+        }
+        catch {
+            Write-Error "Failed to enable UCPD scheduled task: $_"
+            return $false
+        }
+    }
+}
+
+function Open-DefaultAppsSettings {
+    <#
+    .SYNOPSIS
+        Opens Windows Default Apps settings
+
+    .DESCRIPTION
+        Since UCPD blocks programmatic changes to protected associations (PDF, HTTP, HTTPS),
+        this function opens the Windows Settings page where users can manually change defaults.
+
+        This is the ONLY reliable way to change protected associations on Windows 10/11
+        with UCPD enabled.
+
+    .PARAMETER Extension
+        Optional: Opens settings for a specific file extension (e.g., ".pdf")
+
+    .PARAMETER Protocol
+        Optional: Opens settings for a specific protocol (e.g., "http")
+
+    .EXAMPLE
+        Open-DefaultAppsSettings
+
+    .EXAMPLE
+        Open-DefaultAppsSettings -Extension ".pdf"
+
+    .EXAMPLE
+        Open-DefaultAppsSettings -Protocol "http"
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$Extension,
+
+        [Parameter()]
+        [string]$Protocol
+    )
+
+    if ($Extension) {
+        # Open default apps settings for specific extension
+        if (-not $Extension.StartsWith(".")) {
+            $Extension = ".$Extension"
+        }
+        Write-Host "Opening Windows Settings for '$Extension'..." -ForegroundColor Cyan
+        Write-Host "Please select your preferred application manually." -ForegroundColor Yellow
+        Start-Process "ms-settings:defaultapps" -Wait:$false
+    }
+    elseif ($Protocol) {
+        Write-Host "Opening Windows Settings for '$Protocol' protocol..." -ForegroundColor Cyan
+        Write-Host "Please select your preferred application manually." -ForegroundColor Yellow
+        Start-Process "ms-settings:defaultapps" -Wait:$false
+    }
+    else {
+        Write-Host "Opening Windows Default Apps Settings..." -ForegroundColor Cyan
+        Start-Process "ms-settings:defaultapps" -Wait:$false
+    }
+
+    return $true
+}
+
 # ============================================================================
 # REGISTRY OPERATIONS
 # ============================================================================
@@ -530,15 +713,30 @@ function Set-FTA {
         $Extension = ".$Extension"
     }
 
-    # Check for UCPD-protected extensions
+    # Check for UCPD-protected extensions (skip check on Windows Server)
     $protectedExtensions = @(".pdf", ".htm", ".html")
-    if ($Extension -in $protectedExtensions -and (Test-UCPDEnabled) -and -not $Force) {
-        Write-Warning "Extension '$Extension' is protected by UCPD. Use Disable-UCPD (requires Admin + Reboot) or -Force to attempt anyway."
+    $isServer = Test-IsWindowsServer
+    $ucpdActive = -not $isServer -and (Test-UCPDEnabled)
+
+    if ($Extension -in $protectedExtensions -and $ucpdActive -and -not $Force) {
+        Write-Warning @"
+Extension '$Extension' is protected by UCPD (User Choice Protection Driver).
+
+This is a Windows security feature that blocks programmatic changes to PDF/HTML associations.
+Even Adobe, Chrome, and Firefox cannot bypass this - they all ask users to change it manually.
+
+Your options:
+  1. Open-DefaultAppsSettings -Extension '$Extension'  # User changes manually (recommended)
+  2. Export-DefaultAssociations / Import-DefaultAssociations  # For new user profiles
+  3. Use -Force to attempt anyway (will likely fail)
+  4. Disable-UCPD (requires Admin + Reboot, security risk)
+"@
         return [PSCustomObject]@{
-            Extension = $Extension
-            ProgId    = $ProgId
-            Success   = $false
-            Error     = "UCPD protection active"
+            Extension     = $Extension
+            ProgId        = $ProgId
+            Success       = $false
+            Error         = "UCPD protection active"
+            Recommendation = "Use Open-DefaultAppsSettings -Extension '$Extension' for manual change"
         }
     }
 
@@ -561,12 +759,28 @@ function Set-FTA {
             }
         }
         catch {
-            Write-Error "Failed to set file type association: $_"
+            $errorMsg = $_.Exception.Message
+            $isUcpdError = $errorMsg -like "*permission*" -or $errorMsg -like "*access*" -or $errorMsg -like "*verification failed*"
+
+            if ($isUcpdError -and $Extension -in $protectedExtensions) {
+                Write-Error @"
+Failed to set file type association: $errorMsg
+
+This is likely due to UCPD blocking the change. Your options:
+  1. Open-DefaultAppsSettings -Extension '$Extension'  # User changes manually
+  2. Export-DefaultAssociations for new user profiles (DISM)
+"@
+            }
+            else {
+                Write-Error "Failed to set file type association: $errorMsg"
+            }
+
             return [PSCustomObject]@{
-                Extension = $Extension
-                ProgId    = $ProgId
-                Success   = $false
-                Error     = $_.Exception.Message
+                Extension      = $Extension
+                ProgId         = $ProgId
+                Success        = $false
+                Error          = $errorMsg
+                Recommendation = if ($isUcpdError) { "Use Open-DefaultAppsSettings -Extension '$Extension'" } else { $null }
             }
         }
     }
@@ -710,15 +924,30 @@ function Set-PTA {
         [switch]$Force
     )
 
-    # Check for UCPD-protected protocols
+    # Check for UCPD-protected protocols (skip check on Windows Server)
     $protectedProtocols = @("http", "https")
-    if ($Protocol -in $protectedProtocols -and (Test-UCPDEnabled) -and -not $Force) {
-        Write-Warning "Protocol '$Protocol' is protected by UCPD. Use Disable-UCPD (requires Admin + Reboot) or -Force to attempt anyway."
+    $isServer = Test-IsWindowsServer
+    $ucpdActive = -not $isServer -and (Test-UCPDEnabled)
+
+    if ($Protocol -in $protectedProtocols -and $ucpdActive -and -not $Force) {
+        Write-Warning @"
+Protocol '$Protocol' is protected by UCPD (User Choice Protection Driver).
+
+This is a Windows security feature that blocks programmatic changes to browser associations.
+Even Chrome and Firefox cannot bypass this - they all ask users to change it manually.
+
+Your options:
+  1. Open-DefaultAppsSettings -Protocol '$Protocol'  # User changes manually (recommended)
+  2. Export-DefaultAssociations / Import-DefaultAssociations  # For new user profiles
+  3. Use -Force to attempt anyway (will likely fail)
+  4. Disable-UCPD (requires Admin + Reboot, security risk)
+"@
         return [PSCustomObject]@{
-            Protocol = $Protocol
-            ProgId   = $ProgId
-            Success  = $false
-            Error    = "UCPD protection active"
+            Protocol       = $Protocol
+            ProgId         = $ProgId
+            Success        = $false
+            Error          = "UCPD protection active"
+            Recommendation = "Use Open-DefaultAppsSettings -Protocol '$Protocol' for manual change"
         }
     }
 
@@ -741,12 +970,28 @@ function Set-PTA {
             }
         }
         catch {
-            Write-Error "Failed to set protocol association: $_"
+            $errorMsg = $_.Exception.Message
+            $isUcpdError = $errorMsg -like "*permission*" -or $errorMsg -like "*access*" -or $errorMsg -like "*verification failed*"
+
+            if ($isUcpdError -and $Protocol -in $protectedProtocols) {
+                Write-Error @"
+Failed to set protocol association: $errorMsg
+
+This is likely due to UCPD blocking the change. Your options:
+  1. Open-DefaultAppsSettings -Protocol '$Protocol'  # User changes manually
+  2. Export-DefaultAssociations for new user profiles (DISM)
+"@
+            }
+            else {
+                Write-Error "Failed to set protocol association: $errorMsg"
+            }
+
             return [PSCustomObject]@{
-                Protocol = $Protocol
-                ProgId   = $ProgId
-                Success  = $false
-                Error    = $_.Exception.Message
+                Protocol       = $Protocol
+                ProgId         = $ProgId
+                Success        = $false
+                Error          = $errorMsg
+                Recommendation = if ($isUcpdError) { "Use Open-DefaultAppsSettings -Protocol '$Protocol'" } else { $null }
             }
         }
     }
@@ -1208,11 +1453,16 @@ Export-ModuleMember -Function @(
     'Get-UCPDStatus',
     'Disable-UCPD',
     'Enable-UCPD',
+    'Get-UCPDScheduledTask',
+    'Disable-UCPDScheduledTask',
+    'Enable-UCPDScheduledTask',
     # DISM Default Associations (Enterprise)
     'Export-DefaultAssociations',
     'Import-DefaultAssociations',
     'Remove-DefaultAssociations',
     # Utility
+    'Test-IsWindowsServer',
+    'Open-DefaultAppsSettings',
     'Get-RegisteredApplications',
     'Find-ProgIdForExtension'
 )
