@@ -193,6 +193,35 @@ Microsoft hat das absichtlich so implementiert. Die einzigen Optionen sind:
 2. **UCPD deaktivieren** (nicht empfohlen, Sicherheitsrisiko)
 3. **Neues Benutzerprofil** mit DISM-importierten Defaults
 
+### Wie machen es Adobe, Chrome, Firefox und SetUserFTA?
+
+**Kurze Antwort:** Genauso - sie haben auch keine Lösung.
+
+| Anbieter | "Lösung" |
+|----------|----------|
+| **Adobe Acrobat** | Zeigt Popup "Make Adobe your default PDF app" → User muss selbst in Windows-Einstellungen ändern |
+| **Google Chrome** | Zeigt Popup "Set as default browser" → Öffnet Windows-Einstellungen |
+| **Mozilla Firefox** | Zeigt Popup "Set as default browser" → Öffnet Windows-Einstellungen |
+| **SetUserFTA** | Katz-und-Maus-Spiel mit Microsoft (siehe unten) |
+
+**SetUserFTA** (von Christoph Kolbicz, dem Reverse-Engineer des Hash-Algorithmus):
+- Wurde im Februar 2024 von UCPD blockiert
+- Mai 2024: Update veröffentlicht, das wieder funktioniert
+- Kolbicz selbst sagt: *"This is probably not a permanent solution, because Microsoft can block it with an updated UCPD.sys very quickly."*
+
+**Was UCPD v4.3 (Stand 2024) alles blockiert:**
+- Registry Write/Delete/Rename auf geschützte Keys
+- Alle üblichen Tools: `powershell.exe`, `cmd.exe`, `reg.exe`, `regedit.exe`, `wscript.exe`
+- UI Automation Attacks (simulierte Mausklicks auf Windows-Einstellungen)
+- DLL Injection Attacks
+
+**Fazit:** Selbst große Software-Hersteller wie Adobe können UCPD nicht umgehen. Sie alle bitten den User, die Einstellung manuell zu ändern. Das ist kein Versäumnis unsererseits - es ist by Design.
+
+**Quellen:**
+- [SetUserFTA Blog: UCPD.sys](https://kolbi.cz/blog/2024/04/03/userchoice-protection-driver-ucpd-sys/)
+- [gHacks: UCPD stops non-Microsoft software](https://www.ghacks.net/2024/04/08/new-sneaky-windows-driver-ucdp-stops-non-microsoft-software-from-setting-defaults/)
+- [Adobe: Set Acrobat as default](https://helpx.adobe.com/acrobat/kb/not-default-pdf-owner-windows10.html)
+
 ---
 
 ## Enterprise-Deployment (DISM)
