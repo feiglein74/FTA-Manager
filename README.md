@@ -261,7 +261,30 @@ Set-FTA "Applications\photoviewer.dll" ".jpg"
 
 ## UCPD deaktivieren (nicht empfohlen)
 
-Falls Sie UCPD trotzdem deaktivieren müssen:
+### Warum "kurz deaktivieren" NICHT funktioniert
+
+Eine häufige Idee: "Können wir UCPD bei jedem Login kurz deaktivieren, die Änderung machen, und wieder aktivieren?"
+
+**Nein** - UCPD ist ein **Kernel-Treiber** (`UCPD.sys`), der beim Booten geladen wird und bis zum nächsten Reboot aktiv bleibt:
+
+| Schritt | Aktion | UCPD Status |
+|---------|--------|-------------|
+| 1 | System startet | ✅ Aktiv (Treiber geladen) |
+| 2 | Script: `Disable-UCPD` | ✅ **Noch aktiv!** (nur Registry geändert) |
+| 3 | Script: `Set-FTA ".pdf"` | ❌ **Blockiert** (Treiber läuft noch) |
+| 4 | Reboot #1 | ❌ Jetzt erst deaktiviert |
+| 5 | Script: `Set-FTA ".pdf"` | ✅ Funktioniert |
+| 6 | Script: `Enable-UCPD` | ❌ Noch deaktiviert |
+| 7 | Reboot #2 | ✅ Wieder aktiv |
+
+**Probleme:**
+- **2 Reboots erforderlich** für eine einzige Änderung
+- **Sicherheitslücke** zwischen Reboot #1 und #2 (System ungeschützt)
+- **Unpraktikabel** für Login-Scripts oder Automatisierung
+
+Microsoft hat das absichtlich so designt - es gibt keinen Weg, UCPD "mal kurz" zu deaktivieren.
+
+### Falls Sie UCPD trotzdem permanent deaktivieren müssen
 
 ```powershell
 # Erfordert Administrator-Rechte
@@ -277,7 +300,7 @@ Enable-UCPD
 Restart-Computer
 ```
 
-**Warnung:** Das Deaktivieren von UCPD ist ein Sicherheitsrisiko und wird nicht empfohlen. Malware könnte dann Browser- und PDF-Zuordnungen manipulieren.
+**Warnung:** Das permanente Deaktivieren von UCPD ist ein Sicherheitsrisiko. Malware könnte dann Browser- und PDF-Zuordnungen manipulieren.
 
 ## Gängige ProgIds
 
