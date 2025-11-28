@@ -128,6 +128,37 @@ Test-UCPDEnabled    # True/False
 Get-UCPDStatus      # Detaillierte Infos
 ```
 
+### Wie geht UCPD mit existierenden Einträgen um?
+
+UCPD hat zwei Verhaltensweisen:
+
+**1. Blockiert neue Schreibzugriffe**
+- Programme erhalten `PermissionDenied` beim Versuch, die Registry zu ändern
+- Der bestehende Eintrag bleibt unverändert
+
+**2. Lässt existierende Einträge in Ruhe** (meistens)
+- Manuell über Windows-Einstellungen gesetzte Zuordnungen bleiben bestehen
+- UCPD "repariert" oder überschreibt keine alten Einträge aktiv
+
+**Aber Achtung:** Windows selbst kann Zuordnungen zurücksetzen:
+
+| Situation | Was passiert |
+|-----------|--------------|
+| Windows Feature-Update | Kann Zuordnungen auf Microsoft-Defaults zurücksetzen |
+| Edge/Browser-Update | Setzt manchmal http/https auf Edge zurück |
+| Hash-Mismatch | Ungültiger Hash → Eintrag wird ignoriert, Windows fragt neu |
+| "App Defaults Reset" | Windows zeigt Notification und setzt zurück |
+
+**Prüfen ob ein Eintrag gültig ist:**
+
+```powershell
+# Wenn ProgId und Hash vorhanden sind, ist der Eintrag gültig
+Get-FTA ".pdf"
+Get-PTA "http"
+```
+
+**Zusammenfassung:** UCPD schützt den *Schreibzugriff*, nicht existierende Daten. Das eigentliche Problem ist, dass Windows bei Updates manchmal selbst die Zuordnungen auf Microsoft-Produkte zurücksetzt - unabhängig von UCPD.
+
 ---
 
 ## WICHTIG: Was funktioniert und was nicht
