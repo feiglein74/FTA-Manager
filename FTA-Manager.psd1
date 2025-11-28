@@ -5,7 +5,7 @@
     RootModule        = 'FTA-Manager.psm1'
 
     # Version number of this module
-    ModuleVersion     = '1.0.0'
+    ModuleVersion     = '1.1.0'
 
     # ID used to uniquely identify this module
     GUID              = 'f8a7c3e1-5b2d-4a6f-9c8e-1d3b5a7f9e2c'
@@ -42,9 +42,23 @@
         'Get-UCPDStatus',
         'Disable-UCPD',
         'Enable-UCPD',
-        # Utility
+        # UCPD Scheduled Task Management
+        'Get-UCPDScheduledTask',
+        'Disable-UCPDScheduledTask',
+        'Enable-UCPDScheduledTask',
+        # Enterprise UCPD Safe Management
+        'Disable-UCPDSafely',
+        'Enable-UCPDSafely',
+        # Enterprise Deployment (DISM)
+        'Export-DefaultAssociations',
+        'Import-DefaultAssociations',
+        'Remove-DefaultAssociations',
+        # Utility & Detection
         'Get-RegisteredApplications',
-        'Find-ProgIdForExtension'
+        'Find-ProgIdForExtension',
+        'Test-IsWindowsServer',
+        'Open-DefaultAppsSettings',
+        'Get-EDRStatus'
     )
 
     # Cmdlets to export from this module
@@ -70,6 +84,16 @@
 
             # Release notes for this module
             ReleaseNotes = @'
+v1.1.0 - Enterprise Features & UCPD Safe Management
+- NEW: Test-IsWindowsServer - Detect Windows Server (no UCPD)
+- NEW: Get-UCPDScheduledTask / Disable-UCPDScheduledTask / Enable-UCPDScheduledTask
+- NEW: Open-DefaultAppsSettings - Open Windows Settings for manual change
+- NEW: Get-EDRStatus - Detect installed EDR/XDR solutions
+- NEW: Disable-UCPDSafely / Enable-UCPDSafely - Enterprise UCPD management with EDR check and logging
+- NEW: Export-DefaultAssociations / Import-DefaultAssociations / Remove-DefaultAssociations - DISM deployment
+- FIXED: Set-FTA/Set-PTA now correctly report failure when UCPD blocks changes
+- Enhanced error messages with UCPD detection and recommendations
+
 v1.0.0 - Initial release
 - Set/Get/Remove File Type Associations (FTA)
 - Set/Get/Remove Protocol Associations (PTA)

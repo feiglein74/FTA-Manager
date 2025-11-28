@@ -38,9 +38,9 @@ Describe "FTA-Manager Modul" {
             }
         }
 
-        It "Modul-Version ist 1.0.0" {
+        It "Modul-Version ist 1.1.0" {
             $module = Get-Module FTA-Manager
-            $module.Version.ToString() | Should -Be "1.0.0"
+            $module.Version.ToString() | Should -Be "1.1.0"
         }
     }
 }
