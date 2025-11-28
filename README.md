@@ -134,6 +134,14 @@ Windows 10/11 (ab Februar 2022) enthält UCPD, das programmatische Änderungen a
 
 Ohne UCPD könnte Schadsoftware sich als Browser registrieren, alle Web-Anfragen abfangen und Credentials stehlen - daher gelten diese Zuordnungen als "kritische Infrastruktur".
 
+**Und natürlich rein zufällig...** 😉
+- ...ist Microsoft Edge der Standard-Browser nach jeder Windows-Installation
+- ...ist Microsoft Edge der Standard-PDF-Reader nach jeder Windows-Installation
+- ...macht UCPD es Chrome, Firefox und Adobe ausgesprochen schwer, sich als Default zu setzen
+- ...kam UCPD genau dann, als die EU Microsoft wegen Browser-Bundling untersuchte
+
+*Aber das hat natürlich nichts miteinander zu tun. Das ist alles nur zum Schutz der Nutzer.* 🙃
+
 ### UCPD-Status prüfen
 
 ```powershell
