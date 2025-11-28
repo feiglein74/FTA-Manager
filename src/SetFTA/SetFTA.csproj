@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>SetFTA</AssemblyName>
+    <RootNamespace>SetFTA</RootNamespace>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Single-file output -->
+    <PublishSingleFile>false</PublishSingleFile>
+
+    <!-- Assembly info -->
+    <AssemblyTitle>SetFTA - File Type Association Tool</AssemblyTitle>
+    <Description>Sets file type and protocol associations by computing the correct UserChoice hash</Description>
+    <Company>FTA-Manager Project</Company>
+    <Product>SetFTA</Product>
+    <Version>1.0.0</Version>
+
+    <!-- Windows-specific -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Security" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+is_global = true
+build_property.RootNamespace = SetFTA
+build_property.ProjectDir = C:\Users\LattePanda\OneDrive - ACP Group AG\Scripts\fta-mgmt\src\SetFTA\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.CsWinRTUseWindowsUIXamlProjections = false
+build_property.EffectiveAnalysisLevelStyle = 
+build_property.EnableCodeStyleSeverity = 

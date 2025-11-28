@@ -273,6 +273,35 @@ wscript.exe, cscript.exe, cmd.exe, pwsh.exe, WmiPrvSE.exe
 
 **Fazit:** Selbst große Software-Hersteller wie Adobe können UCPD nicht umgehen. Sie alle bitten den User, die Einstellung manuell zu ändern. Das ist kein Versäumnis unsererseits - es ist by Design.
 
+### Unser Experiment: Eigene C# .exe (SetFTA.exe)
+
+Wir haben versucht, den SetUserFTA-Ansatz nachzubauen - eine eigenständige `.exe`, die nicht auf der UCPD-Blocklist steht:
+
+**Was wir gebaut haben:**
+- Standalone C# .exe (`src/SetFTA/SetFTA.exe`)
+- Hash-Algorithmus in C# implementiert (identisch zu PowerShell)
+- Drei Methoden: Win32 API, .NET Registry API, Delete-and-Recreate
+- Direkte `advapi32.dll` Calls: `RegCreateKeyEx`, `RegSetValueEx`, `RegDeleteTree`
+
+**Testergebnisse (November 2024):**
+
+| Test | Extension | Ergebnis |
+|------|-----------|----------|
+| SetFTA.exe set-fta "Applications\notepad.exe" ".txt" | `.txt` | ✅ **Funktioniert!** |
+| SetFTA.exe set-fta "MSEdgePDF" ".pdf" | `.pdf` | ❌ **Error 5 (Access Denied)** |
+| SetFTA.exe set-pta "ChromeHTML" "http" | `http` | ❌ **Error 5 (Access Denied)** |
+
+**Alle drei Methoden schlugen fehl:**
+```
+[INFO] Win32 API failed: RegSetValueEx (ProgId) failed with error 5
+[INFO] .NET API failed: Es wurde versucht, einen nicht autorisierten Vorgang auszuführen.
+[INFO] Delete-recreate failed: Es wurde versucht, einen nicht autorisierten Vorgang auszuführen.
+```
+
+**Erkenntnis:** UCPD ist **nicht nur eine Prozess-Blocklist** - es überwacht die Registry-Keys **direkt auf Kernel-Ebene**. Selbst ein komplett neuer, unbekannter Prozess mit direkten Win32 API Calls wird blockiert.
+
+Das erklärt, warum SetUserFTA ein permanentes Katz-und-Maus-Spiel mit Microsoft führen muss - jede neue Bypass-Methode wird irgendwann blockiert.
+
 **Quellen:**
 - [SetUserFTA Blog: UCPD.sys](https://kolbi.cz/blog/2024/04/03/userchoice-protection-driver-ucpd-sys/)
 - [SetUserFTA Blog: UCPD.sys Part 2](https://kolbi.cz/blog/2025/07/15/ucpd-sys-userchoice-protection-driver-part-2/)
@@ -556,6 +585,51 @@ Der Magic String ist: `"User Choice set via Windows User Experience {D18B6DD5-61
 - Hash und ProgId müssen **atomar** geschrieben werden (Key erst löschen, dann neu erstellen)
 - Ein `ApplicationAssociationToasts`-Eintrag ist erforderlich, damit die Zuordnung funktioniert
 - Die Eingabe für den Hash muss immer **lowercase** sein
+
+## SetFTA.exe (C# Tool)
+
+Zusätzlich zum PowerShell-Modul enthält dieses Projekt eine standalone C# Executable:
+
+### Build
+
+```cmd
+dotnet build src/SetFTA/SetFTA.csproj -c Release
+```
+
+Die Executable wird erstellt unter: `src/SetFTA/bin/Release/net472/SetFTA.exe`
+
+### Verwendung
+
+```cmd
+# Hilfe anzeigen
+SetFTA.exe --help
+
+# File Type Association setzen
+SetFTA.exe set-fta "Applications\notepad.exe" ".txt"
+SetFTA.exe set-fta "AcroExch.Document.DC" ".pdf"
+
+# Protocol Association setzen
+SetFTA.exe set-pta "ChromeHTML" "http"
+
+# Aktuelle Zuordnung anzeigen
+SetFTA.exe get-fta ".pdf"
+SetFTA.exe get-pta "http"
+
+# Hash-Berechnung testen (Debug)
+SetFTA.exe test-hash ".pdf" "AcroExch.Document.DC"
+```
+
+### Warum eine C# .exe?
+
+Die Idee war, UCPD zu umgehen, da es ursprünglich nur bestimmte Prozesse (`powershell.exe`, `cmd.exe`, etc.) blockierte. Leider hat Microsoft UCPD so erweitert, dass es die Registry-Keys **direkt auf Kernel-Ebene** überwacht - unabhängig vom aufrufenden Prozess.
+
+**Ergebnis:** Die C# .exe funktioniert perfekt für nicht-geschützte Extensions (`.txt`, `.jpg`, etc.), wird aber wie PowerShell bei geschützten Extensions (`.pdf`, `http`, etc.) blockiert.
+
+**Trotzdem nützlich für:**
+- Deployment in Umgebungen ohne PowerShell
+- Batch-Scripting
+- Integration in andere Tools
+- Setzen von nicht-geschützten Extensions
 
 ## Referenzen
 

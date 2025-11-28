@@ -25,3 +25,8 @@
 - [x] Modul-Manifest erstellen
 - [x] CLAUDE.md Dokumentation
 - [x] README.md erstellen
+- [x] C# SetFTA.exe Tool erstellen (UCPD-Bypass-Versuch)
+  - Hash-Algorithmus in C# portiert
+  - Win32 API Registry-Zugriff implementiert
+  - Getestet: Funktioniert für nicht-geschützte Extensions
+  - Ergebnis: UCPD blockiert auch eigene .exe auf Kernel-Ebene
