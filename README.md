@@ -13,6 +13,37 @@ FTA-Manager ermöglicht das programmatische Setzen von Dateityp- und Protokoll-Z
 Import-Module .\FTA-Manager.psd1
 ```
 
+## Schnellstart: Logon-Script
+
+Das Modul wurde für den Einsatz in Logon-Scripts entwickelt. Hier die gängigsten Anwendungsfälle:
+
+**Einfacher Oneliner (Netzwerkpfad):**
+```powershell
+Import-Module "\\server\share\FTA-Manager\FTA-Manager.psd1"; Set-FTA "MSEdgePDF" ".pdf"; Set-FTA "ChromeHTML" ".html"
+```
+
+**Mehrere Zuordnungen per Hashtable:**
+```powershell
+Import-Module "\\server\share\FTA-Manager\FTA-Manager.psd1"; @{".pdf"="MSEdgePDF";".html"="ChromeHTML";".txt"="Applications\notepad.exe"}.GetEnumerator() | ForEach-Object { Set-FTA $_.Value $_.Key }
+```
+
+**Als GPO/Logon-Script (CMD-Aufruf):**
+```cmd
+powershell.exe -ExecutionPolicy Bypass -Command "Import-Module '\\server\share\FTA-Manager\FTA-Manager.psd1'; Set-FTA 'MSEdgePDF' '.pdf'"
+```
+
+**Typisches Firmen-Logon-Script:**
+```powershell
+# Logon.ps1
+Import-Module "\\fileserver\scripts$\FTA-Manager\FTA-Manager.psd1"
+Set-FTA "MSEdgePDF" ".pdf"           # PDF mit Edge
+Set-FTA "ChromeHTML" ".html"         # HTML mit Chrome
+Set-PTA "ChromeHTML" "http"          # HTTP mit Chrome
+Set-PTA "ChromeHTML" "https"         # HTTPS mit Chrome
+```
+
+> **Hinweis:** Bei UCPD-geschützten Extensions (`.pdf`, `http`, `https`) auf Windows 10/11 Client wird die Änderung vom Kernel blockiert. Siehe [UCPD-Problematik](#ucpd-problematik) für Lösungen.
+
 ## Funktionen
 
 ### File Type Associations (FTA)
