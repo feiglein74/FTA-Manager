@@ -15,6 +15,14 @@
 
 ## Erledigt
 
+- [x] **v1.1.0 Enterprise Features**
+  - [x] Test-IsWindowsServer - Windows Server Erkennung
+  - [x] Get-UCPDScheduledTask / Disable- / Enable-UCPDScheduledTask
+  - [x] Open-DefaultAppsSettings - Windows Einstellungen öffnen
+  - [x] Get-EDRStatus - EDR/XDR Erkennung (14 Produkte)
+  - [x] Disable-UCPDSafely / Enable-UCPDSafely - Enterprise UCPD Management
+  - [x] Export- / Import- / Remove-DefaultAssociations - DISM Deployment
+  - [x] PSScriptAnalyzer Warnings behoben
 - [x] Pester-Tests erstellen (52 Tests)
 - [x] Kern-Hash-Algorithmus implementieren
 - [x] FTA-Funktionen (Get/Set/Remove/GetAll)
