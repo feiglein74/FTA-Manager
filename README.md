@@ -42,6 +42,14 @@ Import-Module .\FTA-Manager.psd1
 | `Disable-UCPD` | UCPD deaktivieren (Admin + Reboot erforderlich) |
 | `Enable-UCPD` | UCPD aktivieren (Admin + Reboot erforderlich) |
 
+### Enterprise-Deployment (DISM)
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `Export-DefaultAssociations` | Exportiert FTA/PTA als DISM-kompatible XML |
+| `Import-DefaultAssociations` | Importiert XML via DISM (Admin erforderlich) |
+| `Remove-DefaultAssociations` | Entfernt deployed Defaults (Admin erforderlich) |
+
 ### Hilfsfunktionen
 
 | Funktion | Beschreibung |
@@ -93,9 +101,9 @@ Find-ProgIdForExtension ".pdf"
 
 ## UCPD (User Choice Protection Driver)
 
-Windows 10/11 (ab Februar 2022) enthält UCPD, das programmatische Änderungen an folgenden Zuordnungen blockiert:
+Windows 10/11 (ab Februar 2022) enthält UCPD, das programmatische Änderungen an folgenden Zuordnungen **auf Kernel-Ebene blockiert**:
 
-- `.pdf` Dateien
+- `.pdf`, `.htm`, `.html` Dateien
 - `http` und `https` Protokolle
 
 ### Warum schützt Windows genau diese Zuordnungen?
@@ -106,7 +114,7 @@ Windows 10/11 (ab Februar 2022) enthält UCPD, das programmatische Änderungen a
 - Abfangen von Login-Daten, Banking-Informationen, etc.
 - Man-in-the-Middle-Angriffe durch gefälschte Browser
 
-**PDF** ist der zweitgrößte Angriffsvektor:
+**PDF/HTML** ist der zweitgrößte Angriffsvektor:
 - PDFs können JavaScript, eingebettete Objekte und Links enthalten
 - Malware könnte einen unsicheren oder manipulierten PDF-Reader setzen
 - Exploit-Kits nutzen häufig präparierte PDF-Dateien
@@ -120,14 +128,125 @@ Test-UCPDEnabled    # True/False
 Get-UCPDStatus      # Detaillierte Infos
 ```
 
-### UCPD deaktivieren
+---
+
+## WICHTIG: Was funktioniert und was nicht
+
+### Übersicht nach Extension-Typ
+
+| Extension/Protokoll | Set-FTA/Set-PTA | Login-Script | DISM Import | GPO |
+|---------------------|-----------------|--------------|-------------|-----|
+| `.txt`, `.jpg`, `.docx`, etc. | ✅ | ✅ | ✅ | ✅ |
+| `.pdf`, `.htm`, `.html` | ❌ UCPD blockiert | ❌ | ✅ Nur neue User | ✅ |
+| `http`, `https` | ❌ UCPD blockiert | ❌ | ✅ Nur neue User | ✅ |
+| `mailto`, `tel`, etc. | ✅ | ✅ | ✅ | ✅ |
+
+### Übersicht nach Szenario
+
+| Szenario | Methode | Funktioniert für UCPD-geschützte? |
+|----------|---------|-----------------------------------|
+| Einzelner PC, manuell | Windows-Einstellungen | ✅ Ja |
+| Einzelner PC, Script | `Set-FTA` / `Set-PTA` | ❌ Nein |
+| Neue Benutzerprofile | DISM Import | ✅ Ja |
+| Bestehende User, Enterprise | GPO + XML | ⚠️ Nur bei erstem Login nach GPO |
+| Bestehende User, Login-Script | `Set-FTA` im Script | ❌ Nein |
+| Bestehende User, manuell | User ändert selbst | ✅ Ja |
+
+### Die harte Wahrheit für Enterprise-Admins
+
+**Für bestehende Benutzerprofile mit UCPD gibt es KEINEN programmatischen Weg, PDF/HTML/HTTP-Zuordnungen zu ändern.**
+
+Microsoft hat das absichtlich so implementiert. Die einzigen Optionen sind:
+
+1. **User ändert es selbst** in Windows-Einstellungen → Standard-Apps
+2. **UCPD deaktivieren** (nicht empfohlen, Sicherheitsrisiko)
+3. **Neues Benutzerprofil** mit DISM-importierten Defaults
+
+---
+
+## Enterprise-Deployment (DISM)
+
+Für Unternehmensumgebungen ist der DISM-Import der empfohlene Weg:
+
+### Funktionen
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `Export-DefaultAssociations` | Exportiert FTA/PTA als DISM-kompatible XML |
+| `Import-DefaultAssociations` | Importiert XML via DISM (Admin erforderlich) |
+| `Remove-DefaultAssociations` | Entfernt deployed Defaults (Admin erforderlich) |
+
+### Workflow
 
 ```powershell
-# Erfordert Administrator-Rechte und Neustart
-Disable-UCPD
+# 1. Auf Referenz-PC: Einstellungen manuell konfigurieren (Windows-Einstellungen)
+
+# 2. Export der Konfiguration
+Export-DefaultAssociations -Path ".\defaults.xml" -Extensions ".pdf", ".html" -Protocols "http", "https"
+
+# Oder alle Zuordnungen exportieren:
+Export-DefaultAssociations -Path ".\defaults.xml" -IncludeAll
+
+# 3. Auf Ziel-PCs (als Administrator):
+Import-DefaultAssociations -Path "\\server\share\defaults.xml"
+
+# 4. Optional: Zurücksetzen auf Windows-Defaults
+Remove-DefaultAssociations
 ```
 
-**Hinweis:** Mit dem `-Force` Parameter kann versucht werden, geschützte Zuordnungen trotzdem zu setzen. UCPD macht diese Änderungen jedoch beim nächsten Lauf rückgängig.
+### Alternative: GPO
+
+1. XML-Datei auf Netzwerkfreigabe ablegen
+2. GPO erstellen: `Computer Configuration → Administrative Templates → Windows Components → File Explorer`
+3. "Set a default associations configuration file" aktivieren
+4. Pfad zur XML-Datei angeben
+
+**Hinweis:** Sowohl DISM-Import als auch GPO gelten primär für **neue Benutzerprofile**. Bestehende Profile werden nur bei bestimmten Bedingungen aktualisiert.
+
+---
+
+## Login-Scripts (nur für nicht-geschützte Extensions!)
+
+Login-Scripts funktionieren **NUR** für Extensions, die nicht von UCPD geschützt sind:
+
+```powershell
+# LoginScript-SetFTA.ps1
+# ⚠️ Funktioniert NICHT für .pdf, .htm, .html, http, https!
+
+$modulePath = "\\server\share\FTA-Manager\FTA-Manager.psm1"
+Import-Module $modulePath -Force
+
+# Diese funktionieren:
+Set-FTA "Applications\notepad.exe" ".txt"
+Set-FTA "Applications\code.exe" ".log"
+Set-FTA "Applications\photoviewer.dll" ".jpg"
+
+# Diese werden von UCPD blockiert (Fehler):
+# Set-FTA "AcroExch.Document.DC" ".pdf"      # ❌ Blockiert
+# Set-PTA "ChromeHTML" "http"                 # ❌ Blockiert
+```
+
+---
+
+## UCPD deaktivieren (nicht empfohlen)
+
+Falls Sie UCPD trotzdem deaktivieren müssen:
+
+```powershell
+# Erfordert Administrator-Rechte
+Disable-UCPD
+
+# Neustart erforderlich!
+Restart-Computer
+
+# Nach Neustart funktioniert Set-FTA auch für .pdf, http, etc.
+
+# Später wieder aktivieren:
+Enable-UCPD
+Restart-Computer
+```
+
+**Warnung:** Das Deaktivieren von UCPD ist ein Sicherheitsrisiko und wird nicht empfohlen. Malware könnte dann Browser- und PDF-Zuordnungen manipulieren.
 
 ## Gängige ProgIds
 
