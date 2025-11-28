@@ -1243,7 +1243,6 @@ function Get-UCPDScheduledTask {
     param()
 
     $taskPath = "\Microsoft\Windows\Shell\"
-    $taskName = "IndexerAutomaticMaintenance"
 
     # UCPD is managed through multiple mechanisms, check the main ones
     $result = [PSCustomObject]@{
