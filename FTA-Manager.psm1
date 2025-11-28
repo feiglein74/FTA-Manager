@@ -917,6 +917,278 @@ function Find-ProgIdForExtension {
 }
 
 # ============================================================================
+# DISM DEFAULT ASSOCIATIONS (Enterprise Deployment)
+# ============================================================================
+
+function Get-ApplicationNameForProgId {
+    <#
+    .SYNOPSIS
+        Gets the display name for a ProgId
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ProgId
+    )
+
+    # Try HKCU first, then HKLM
+    foreach ($hive in @("HKCU:\SOFTWARE\Classes", "HKLM:\SOFTWARE\Classes")) {
+        $progIdPath = "$hive\$ProgId"
+        if (Test-Path $progIdPath) {
+            # Try FriendlyTypeName first
+            $friendlyName = (Get-ItemProperty $progIdPath -Name "FriendlyTypeName" -ErrorAction SilentlyContinue).FriendlyTypeName
+            if ($friendlyName -and $friendlyName -notlike "@*") {
+                return $friendlyName
+            }
+
+            # Fall back to default value
+            $defaultName = (Get-ItemProperty $progIdPath -ErrorAction SilentlyContinue).'(Default)'
+            if ($defaultName) {
+                return $defaultName
+            }
+        }
+    }
+
+    return $ProgId
+}
+
+function Export-DefaultAssociations {
+    <#
+    .SYNOPSIS
+        Exports current file type and protocol associations to a DISM-compatible XML file
+
+    .DESCRIPTION
+        Creates an XML file that can be used with:
+        - DISM /online /import-defaultappassociations:file.xml
+        - GPO "Set a default associations configuration file"
+        - Intune/MDM deployment
+
+        This is the recommended way to deploy PDF/HTML/HTTP associations in enterprise
+        environments, as it bypasses UCPD restrictions.
+
+    .PARAMETER Path
+        The output path for the XML file
+
+    .PARAMETER Extensions
+        Optional array of extensions to export (e.g., ".pdf", ".html")
+        If not specified, exports all current user associations
+
+    .PARAMETER Protocols
+        Optional array of protocols to export (e.g., "http", "https")
+        If not specified, exports all current user protocol associations
+
+    .PARAMETER IncludeAll
+        Include all file type and protocol associations
+
+    .EXAMPLE
+        Export-DefaultAssociations -Path "C:\Deploy\associations.xml"
+
+    .EXAMPLE
+        Export-DefaultAssociations -Path ".\defaults.xml" -Extensions ".pdf", ".html" -Protocols "http", "https"
+
+    .EXAMPLE
+        # Export from reference PC, then import on target:
+        Export-DefaultAssociations -Path "\\server\share\defaults.xml" -IncludeAll
+        # On target (as Admin): dism /online /import-defaultappassociations:\\server\share\defaults.xml
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Path,
+
+        [Parameter()]
+        [string[]]$Extensions,
+
+        [Parameter()]
+        [string[]]$Protocols,
+
+        [Parameter()]
+        [switch]$IncludeAll
+    )
+
+    $associations = @()
+
+    # Get file type associations
+    if ($IncludeAll -or $Extensions) {
+        $allFta = Get-AllFTA
+
+        if ($Extensions) {
+            # Normalize extensions
+            $normalizedExt = $Extensions | ForEach-Object {
+                if (-not $_.StartsWith(".")) { ".$_" } else { $_ }
+            }
+            $allFta = $allFta | Where-Object { $_.Extension -in $normalizedExt }
+        }
+
+        foreach ($fta in $allFta) {
+            $appName = Get-ApplicationNameForProgId -ProgId $fta.ProgId
+            $associations += [PSCustomObject]@{
+                Identifier      = $fta.Extension
+                ProgId          = $fta.ProgId
+                ApplicationName = $appName
+            }
+        }
+    }
+
+    # Get protocol associations
+    if ($IncludeAll -or $Protocols) {
+        $allPta = Get-AllPTA
+
+        if ($Protocols) {
+            $allPta = $allPta | Where-Object { $_.Protocol -in $Protocols }
+        }
+
+        foreach ($pta in $allPta) {
+            $appName = Get-ApplicationNameForProgId -ProgId $pta.ProgId
+            $associations += [PSCustomObject]@{
+                Identifier      = $pta.Protocol
+                ProgId          = $pta.ProgId
+                ApplicationName = $appName
+            }
+        }
+    }
+
+    if ($associations.Count -eq 0) {
+        Write-Warning "No associations found to export. Use -IncludeAll, -Extensions, or -Protocols parameter."
+        return $null
+    }
+
+    # Build XML
+    $xmlContent = @"
+<?xml version="1.0" encoding="UTF-8"?>
+<DefaultAssociations>
+"@
+
+    foreach ($assoc in ($associations | Sort-Object Identifier)) {
+        $xmlContent += "`n  <Association Identifier=`"$($assoc.Identifier)`" ProgId=`"$($assoc.ProgId)`" ApplicationName=`"$($assoc.ApplicationName)`" />"
+    }
+
+    $xmlContent += "`n</DefaultAssociations>"
+
+    # Write file
+    $xmlContent | Out-File -FilePath $Path -Encoding UTF8 -Force
+
+    Write-Verbose "Exported $($associations.Count) associations to $Path"
+
+    return [PSCustomObject]@{
+        Path              = (Resolve-Path $Path).Path
+        AssociationCount  = $associations.Count
+        FileTypes         = ($associations | Where-Object { $_.Identifier.StartsWith(".") }).Count
+        Protocols         = ($associations | Where-Object { -not $_.Identifier.StartsWith(".") }).Count
+    }
+}
+
+function Import-DefaultAssociations {
+    <#
+    .SYNOPSIS
+        Imports default associations from a DISM-compatible XML file (requires Admin)
+
+    .DESCRIPTION
+        Wrapper for: dism /online /import-defaultappassociations:file.xml
+
+        This sets the DEFAULT associations for NEW users. Existing user profiles
+        are not affected. For existing users, use Set-FTA/Set-PTA or GPO.
+
+    .PARAMETER Path
+        Path to the XML file created by Export-DefaultAssociations or DISM export
+
+    .PARAMETER RemoveExisting
+        Remove current default associations before importing
+
+    .EXAMPLE
+        Import-DefaultAssociations -Path "C:\Deploy\associations.xml"
+
+    .NOTES
+        Requires Administrator privileges
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Path
+    )
+
+    # Check admin
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Error "Administrator privileges required for Import-DefaultAssociations"
+        return $false
+    }
+
+    if (-not (Test-Path $Path)) {
+        Write-Error "File not found: $Path"
+        return $false
+    }
+
+    $fullPath = (Resolve-Path $Path).Path
+
+    if ($PSCmdlet.ShouldProcess($fullPath, "Import Default Associations via DISM")) {
+        try {
+            $result = & dism /online /import-defaultappassociations:"$fullPath" 2>&1
+
+            if ($LASTEXITCODE -eq 0) {
+                Write-Verbose "Successfully imported default associations"
+                Write-Warning "Default associations imported. These apply to NEW user profiles only."
+                return $true
+            }
+            else {
+                Write-Error "DISM failed with exit code $LASTEXITCODE : $result"
+                return $false
+            }
+        }
+        catch {
+            Write-Error "Failed to import associations: $_"
+            return $false
+        }
+    }
+}
+
+function Remove-DefaultAssociations {
+    <#
+    .SYNOPSIS
+        Removes the deployed default associations (requires Admin)
+
+    .DESCRIPTION
+        Wrapper for: dism /online /remove-defaultappassociations
+
+        Removes previously deployed default associations. Windows defaults will be restored.
+
+    .EXAMPLE
+        Remove-DefaultAssociations
+
+    .NOTES
+        Requires Administrator privileges
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    # Check admin
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Error "Administrator privileges required for Remove-DefaultAssociations"
+        return $false
+    }
+
+    if ($PSCmdlet.ShouldProcess("Default Associations", "Remove via DISM")) {
+        try {
+            $result = & dism /online /remove-defaultappassociations 2>&1
+
+            if ($LASTEXITCODE -eq 0) {
+                Write-Verbose "Successfully removed default associations"
+                return $true
+            }
+            else {
+                Write-Error "DISM failed with exit code $LASTEXITCODE : $result"
+                return $false
+            }
+        }
+        catch {
+            Write-Error "Failed to remove associations: $_"
+            return $false
+        }
+    }
+}
+
+# ============================================================================
 # EXPORT MODULE MEMBERS
 # ============================================================================
 
@@ -936,6 +1208,10 @@ Export-ModuleMember -Function @(
     'Get-UCPDStatus',
     'Disable-UCPD',
     'Enable-UCPD',
+    # DISM Default Associations (Enterprise)
+    'Export-DefaultAssociations',
+    'Import-DefaultAssociations',
+    'Remove-DefaultAssociations',
     # Utility
     'Get-RegisteredApplications',
     'Find-ProgIdForExtension'
