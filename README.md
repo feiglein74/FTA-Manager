@@ -209,16 +209,53 @@ Microsoft hat das absichtlich so implementiert. Die einzigen Optionen sind:
 - Mai 2024: Update veröffentlicht, das wieder funktioniert
 - Kolbicz selbst sagt: *"This is probably not a permanent solution, because Microsoft can block it with an updated UCPD.sys very quickly."*
 
+### Technische Details: Wie SetUserFTA UCPD umgeht
+
+**UCPD blockiert nur bestimmte Executables:**
+```
+dllhost.exe, reg.exe, rundll32.exe, powershell.exe, regedit.exe,
+wscript.exe, cscript.exe, cmd.exe, pwsh.exe, WmiPrvSE.exe
+```
+
+`SetUserFTA.exe` steht nicht auf dieser Liste - das war der erste "Trick".
+
+**Bypass-Techniken und deren Schicksal:**
+
+| Technik | Beschreibung | Status |
+|---------|--------------|--------|
+| Eigene .exe | Nicht auf Blocklist | ⚠️ Kann jederzeit blockiert werden |
+| ACL Manipulation | `RegSetKeySecurity()` → Rechte zurücksetzen | ❌ Blockiert in UCPD v4.3 |
+| Value Deletion | ProgId/Hash löschen statt überschreiben | ❌ Blockiert in UCPD v4.3 |
+| Direct NT API | Low-Level Kernel-Calls | ⚠️ Teilweise blockiert |
+
+**Das Katz-und-Maus-Spiel:**
+
+| Zeitpunkt | SetUserFTA | Microsoft Reaktion |
+|-----------|------------|-------------------|
+| Feb 2024 | ❌ Funktioniert nicht mehr | UCPD v3.1 released |
+| Apr 2024 | ✅ ACL-Trick | ❌ Blockiert in v4.2 |
+| Mai 2024 | ✅ Neuer Workaround | ❌ Blockiert in v4.3 |
+| Laufend | ? | Telemetrie erkennt Angriffe **bevor** sie veröffentlicht werden |
+
+**Microsoft kann die Blocklist "on the fly" updaten** - ohne Treiber-Update, ohne Reboot. Sie nutzen Telemetrie und Windows Defender um neue Bypass-Methoden zu erkennen.
+
+### Windows Server: Nicht betroffen!
+
+**Wichtig:** Windows Server hat kein UCPD. Dort funktioniert `Set-FTA` und `Set-PTA` problemlos für alle Extensions und Protokolle, einschließlich `.pdf`, `http`, `https`.
+
 **Was UCPD v4.3 (Stand 2024) alles blockiert:**
 - Registry Write/Delete/Rename auf geschützte Keys
 - Alle üblichen Tools: `powershell.exe`, `cmd.exe`, `reg.exe`, `regedit.exe`, `wscript.exe`
 - UI Automation Attacks (simulierte Mausklicks auf Windows-Einstellungen)
 - DLL Injection Attacks
+- ACL-Änderungen auf geschützte Keys
 
 **Fazit:** Selbst große Software-Hersteller wie Adobe können UCPD nicht umgehen. Sie alle bitten den User, die Einstellung manuell zu ändern. Das ist kein Versäumnis unsererseits - es ist by Design.
 
 **Quellen:**
 - [SetUserFTA Blog: UCPD.sys](https://kolbi.cz/blog/2024/04/03/userchoice-protection-driver-ucpd-sys/)
+- [SetUserFTA Blog: UCPD.sys Part 2](https://kolbi.cz/blog/2025/07/15/ucpd-sys-userchoice-protection-driver-part-2/)
+- [SetUserFTA FAQ](https://setuserfta.com/faq/)
 - [gHacks: UCPD stops non-Microsoft software](https://www.ghacks.net/2024/04/08/new-sneaky-windows-driver-ucdp-stops-non-microsoft-software-from-setting-defaults/)
 - [Adobe: Set Acrobat as default](https://helpx.adobe.com/acrobat/kb/not-default-pdf-owner-windows10.html)
 
