@@ -518,6 +518,426 @@ function Open-DefaultAppsSettings {
     return $true
 }
 
+function Get-EDRStatus {
+    <#
+    .SYNOPSIS
+        Detects installed EDR/XDR solutions
+
+    .DESCRIPTION
+        Checks for common EDR/XDR solutions that provide protection against
+        malware and browser hijacking. This is used by Disable-UCPDSafely
+        to verify that alternative protection is in place.
+
+    .EXAMPLE
+        Get-EDRStatus
+
+    .EXAMPLE
+        if ((Get-EDRStatus).IsProtected) { "EDR protection active" }
+    #>
+    [CmdletBinding()]
+    param()
+
+    $edrProducts = @()
+
+    # Check Windows Security Center for registered AV/EDR products
+    try {
+        $avProducts = Get-CimInstance -Namespace "root/SecurityCenter2" -ClassName "AntiVirusProduct" -ErrorAction SilentlyContinue
+        foreach ($av in $avProducts) {
+            $edrProducts += [PSCustomObject]@{
+                Name       = $av.displayName
+                State      = $av.productState
+                Source     = "SecurityCenter2"
+                IsEDR      = $av.displayName -match "Defender for Endpoint|CrowdStrike|SentinelOne|Carbon Black|Cortex|Sophos|ESET|Trend Micro|McAfee|Symantec|Cylance"
+            }
+        }
+    }
+    catch {}
+
+    # Check for Microsoft Defender for Endpoint (ATP)
+    $defenderATP = Get-Service -Name "Sense" -ErrorAction SilentlyContinue
+    if ($defenderATP -and $defenderATP.Status -eq "Running") {
+        $edrProducts += [PSCustomObject]@{
+            Name       = "Microsoft Defender for Endpoint"
+            State      = "Running"
+            Source     = "Service:Sense"
+            IsEDR      = $true
+        }
+    }
+
+    # Check for CrowdStrike Falcon
+    $crowdstrike = Get-Service -Name "CSFalconService" -ErrorAction SilentlyContinue
+    if ($crowdstrike -and $crowdstrike.Status -eq "Running") {
+        $edrProducts += [PSCustomObject]@{
+            Name       = "CrowdStrike Falcon"
+            State      = "Running"
+            Source     = "Service:CSFalconService"
+            IsEDR      = $true
+        }
+    }
+
+    # Check for SentinelOne
+    $sentinelone = Get-Service -Name "SentinelAgent" -ErrorAction SilentlyContinue
+    if ($sentinelone -and $sentinelone.Status -eq "Running") {
+        $edrProducts += [PSCustomObject]@{
+            Name       = "SentinelOne"
+            State      = "Running"
+            Source     = "Service:SentinelAgent"
+            IsEDR      = $true
+        }
+    }
+
+    # Check for Carbon Black
+    $carbonblack = Get-Service -Name "CbDefense" -ErrorAction SilentlyContinue
+    if (-not $carbonblack) { $carbonblack = Get-Service -Name "CbDefenseSensor" -ErrorAction SilentlyContinue }
+    if ($carbonblack -and $carbonblack.Status -eq "Running") {
+        $edrProducts += [PSCustomObject]@{
+            Name       = "VMware Carbon Black"
+            State      = "Running"
+            Source     = "Service:CbDefense"
+            IsEDR      = $true
+        }
+    }
+
+    # Check for Cortex XDR
+    $cortex = Get-Service -Name "CortexXDR" -ErrorAction SilentlyContinue
+    if (-not $cortex) { $cortex = Get-Service -Name "Traps" -ErrorAction SilentlyContinue }
+    if ($cortex -and $cortex.Status -eq "Running") {
+        $edrProducts += [PSCustomObject]@{
+            Name       = "Palo Alto Cortex XDR"
+            State      = "Running"
+            Source     = "Service:CortexXDR"
+            IsEDR      = $true
+        }
+    }
+
+    # Check for Sophos
+    $sophos = Get-Service -Name "Sophos Endpoint Defense Service" -ErrorAction SilentlyContinue
+    if ($sophos -and $sophos.Status -eq "Running") {
+        $edrProducts += [PSCustomObject]@{
+            Name       = "Sophos Endpoint"
+            State      = "Running"
+            Source     = "Service:Sophos"
+            IsEDR      = $true
+        }
+    }
+
+    # Deduplicate by name
+    $uniqueProducts = $edrProducts | Sort-Object Name -Unique
+
+    # Determine if any real EDR is present
+    $hasEDR = ($uniqueProducts | Where-Object { $_.IsEDR }).Count -gt 0
+
+    return [PSCustomObject]@{
+        IsProtected   = $hasEDR
+        Products      = $uniqueProducts
+        EDRCount      = ($uniqueProducts | Where-Object { $_.IsEDR }).Count
+        HasDefenderATP = ($uniqueProducts | Where-Object { $_.Name -eq "Microsoft Defender for Endpoint" }).Count -gt 0
+        Timestamp     = Get-Date
+    }
+}
+
+function Disable-UCPDSafely {
+    <#
+    .SYNOPSIS
+        Safely disables UCPD with EDR verification and logging (requires Admin)
+
+    .DESCRIPTION
+        This function provides a "safe" way to disable UCPD in enterprise environments
+        where EDR/XDR protection is in place. It:
+
+        1. Checks for active EDR/XDR solutions
+        2. Warns if no EDR is detected
+        3. Disables UCPD driver (Start = 4)
+        4. Disables the UCPD velocity scheduled task
+        5. Logs the action to Windows Event Log and optionally to a file
+
+        This is intended for enterprise environments where:
+        - Central EDR/XDR provides malware protection
+        - Automated FTA deployment is required
+        - Security team has approved UCPD deactivation
+
+    .PARAMETER Reason
+        Mandatory reason for disabling UCPD (for audit logging)
+
+    .PARAMETER Force
+        Bypass the EDR check warning (use with caution!)
+
+    .PARAMETER LogPath
+        Optional path for log file. Default: C:\Windows\Logs\FTA-Manager\UCPD.log
+
+    .EXAMPLE
+        Disable-UCPDSafely -Reason "FTA Deployment for Adobe Acrobat"
+
+    .EXAMPLE
+        Disable-UCPDSafely -Reason "Browser standardization" -Force
+
+    .NOTES
+        Requires Administrator privileges and a REBOOT to take effect.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Reason,
+
+        [Parameter()]
+        [switch]$Force,
+
+        [Parameter()]
+        [string]$LogPath = "C:\Windows\Logs\FTA-Manager\UCPD.log"
+    )
+
+    # Check admin
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Error "Administrator privileges required for Disable-UCPDSafely"
+        return [PSCustomObject]@{ Success = $false; Error = "Not running as Administrator" }
+    }
+
+    # Check if Windows Server (UCPD doesn't exist there)
+    if (Test-IsWindowsServer) {
+        Write-Host "Windows Server detected - UCPD is not present on Server editions." -ForegroundColor Green
+        return [PSCustomObject]@{
+            Success     = $true
+            Message     = "UCPD not present on Windows Server"
+            IsServer    = $true
+            RebootRequired = $false
+        }
+    }
+
+    # Check EDR status
+    $edrStatus = Get-EDRStatus
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $computerName = $env:COMPUTERNAME
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+    if (-not $edrStatus.IsProtected -and -not $Force) {
+        Write-Warning @"
+NO EDR/XDR PROTECTION DETECTED!
+
+Disabling UCPD without EDR protection is a security risk.
+Malware could hijack browser and PDF associations.
+
+Detected security products:
+$($edrStatus.Products | ForEach-Object { "  - $($_.Name)" } | Out-String)
+
+If you have EDR that wasn't detected, or accept the risk, use -Force.
+"@
+        return [PSCustomObject]@{
+            Success       = $false
+            Error         = "No EDR protection detected"
+            EDRStatus     = $edrStatus
+            Recommendation = "Install EDR/XDR or use -Force (not recommended)"
+        }
+    }
+
+    if ($PSCmdlet.ShouldProcess("UCPD", "Disable safely with logging")) {
+        $results = @{
+            UCPDDisabled = $false
+            TaskDisabled = $false
+            LogWritten   = $false
+            Errors       = @()
+        }
+
+        # 1. Disable UCPD driver
+        try {
+            $ucpdPath = "HKLM:\SYSTEM\CurrentControlSet\Services\UCPD"
+            New-ItemProperty -Path $ucpdPath -Name "Start" -Value 4 -PropertyType DWORD -Force | Out-Null
+            $results.UCPDDisabled = $true
+            Write-Host "[OK] UCPD driver disabled (Start = 4)" -ForegroundColor Green
+        }
+        catch {
+            $results.Errors += "Failed to disable UCPD: $_"
+            Write-Error "Failed to disable UCPD driver: $_"
+        }
+
+        # 2. Disable scheduled task
+        try {
+            Disable-ScheduledTask -TaskName "UCPD velocity" -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -ErrorAction Stop | Out-Null
+            $results.TaskDisabled = $true
+            Write-Host "[OK] UCPD velocity scheduled task disabled" -ForegroundColor Green
+        }
+        catch {
+            $results.Errors += "Failed to disable scheduled task: $_"
+            Write-Warning "Failed to disable UCPD scheduled task: $_"
+        }
+
+        # 3. Write log
+        $logEntry = @"
+================================================================================
+UCPD DEACTIVATION LOG
+================================================================================
+Timestamp:    $timestamp
+Computer:     $computerName
+User:         $currentUser
+Reason:       $Reason
+EDR Status:   $(if ($edrStatus.IsProtected) { "PROTECTED" } else { "NOT PROTECTED (Force used)" })
+EDR Products: $($edrStatus.Products | Where-Object { $_.IsEDR } | ForEach-Object { $_.Name } | Join-String -Separator ", ")
+
+Actions:
+  - UCPD Driver:    $(if ($results.UCPDDisabled) { "Disabled" } else { "FAILED" })
+  - Scheduled Task: $(if ($results.TaskDisabled) { "Disabled" } else { "FAILED" })
+
+Errors: $(if ($results.Errors.Count -eq 0) { "None" } else { $results.Errors -join "; " })
+================================================================================
+
+"@
+
+        try {
+            $logDir = Split-Path $LogPath -Parent
+            if (-not (Test-Path $logDir)) {
+                New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+            }
+            Add-Content -Path $LogPath -Value $logEntry -Encoding UTF8
+            $results.LogWritten = $true
+            Write-Host "[OK] Action logged to: $LogPath" -ForegroundColor Green
+        }
+        catch {
+            $results.Errors += "Failed to write log: $_"
+            Write-Warning "Failed to write log file: $_"
+        }
+
+        # 4. Write to Windows Event Log
+        try {
+            $eventMessage = "UCPD disabled by $currentUser. Reason: $Reason. EDR: $(if ($edrStatus.IsProtected) { $edrStatus.Products | Where-Object { $_.IsEDR } | ForEach-Object { $_.Name } | Join-String -Separator ', ' } else { 'None detected (Force used)' })"
+            Write-EventLog -LogName "Application" -Source "FTA-Manager" -EventId 1000 -EntryType Warning -Message $eventMessage -ErrorAction SilentlyContinue
+        }
+        catch {
+            # Event source might not exist, that's OK
+        }
+
+        # Summary
+        $success = $results.UCPDDisabled
+        Write-Host ""
+        if ($success) {
+            Write-Host "========================================" -ForegroundColor Yellow
+            Write-Host " UCPD SUCCESSFULLY DISABLED" -ForegroundColor Yellow
+            Write-Host "========================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host " A REBOOT IS REQUIRED for changes to take effect!" -ForegroundColor Red
+            Write-Host ""
+            Write-Host " After reboot, Set-FTA and Set-PTA will work for:" -ForegroundColor Cyan
+            Write-Host "   - .pdf, .htm, .html" -ForegroundColor White
+            Write-Host "   - http, https protocols" -ForegroundColor White
+            Write-Host ""
+            if ($edrStatus.IsProtected) {
+                Write-Host " EDR Protection: $($edrStatus.Products | Where-Object { $_.IsEDR } | ForEach-Object { $_.Name } | Join-String -Separator ', ')" -ForegroundColor Green
+            }
+        }
+
+        return [PSCustomObject]@{
+            Success        = $success
+            UCPDDisabled   = $results.UCPDDisabled
+            TaskDisabled   = $results.TaskDisabled
+            LogWritten     = $results.LogWritten
+            LogPath        = $LogPath
+            EDRStatus      = $edrStatus
+            RebootRequired = $true
+            Timestamp      = $timestamp
+            User           = $currentUser
+            Reason         = $Reason
+            Errors         = $results.Errors
+        }
+    }
+}
+
+function Enable-UCPDSafely {
+    <#
+    .SYNOPSIS
+        Re-enables UCPD with logging (requires Admin)
+
+    .DESCRIPTION
+        Re-enables UCPD driver and scheduled task, with logging.
+
+    .PARAMETER Reason
+        Optional reason for re-enabling UCPD
+
+    .PARAMETER LogPath
+        Optional path for log file. Default: C:\Windows\Logs\FTA-Manager\UCPD.log
+
+    .EXAMPLE
+        Enable-UCPDSafely -Reason "FTA deployment completed"
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Position = 0)]
+        [string]$Reason = "Manual re-enablement",
+
+        [Parameter()]
+        [string]$LogPath = "C:\Windows\Logs\FTA-Manager\UCPD.log"
+    )
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Error "Administrator privileges required for Enable-UCPDSafely"
+        return [PSCustomObject]@{ Success = $false; Error = "Not running as Administrator" }
+    }
+
+    if (Test-IsWindowsServer) {
+        Write-Host "Windows Server detected - UCPD is not present on Server editions." -ForegroundColor Green
+        return [PSCustomObject]@{ Success = $true; Message = "UCPD not present on Windows Server"; IsServer = $true }
+    }
+
+    if ($PSCmdlet.ShouldProcess("UCPD", "Re-enable with logging")) {
+        $results = @{ UCPDEnabled = $false; TaskEnabled = $false; Errors = @() }
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+        # Enable UCPD driver
+        try {
+            $ucpdPath = "HKLM:\SYSTEM\CurrentControlSet\Services\UCPD"
+            New-ItemProperty -Path $ucpdPath -Name "Start" -Value 2 -PropertyType DWORD -Force | Out-Null
+            $results.UCPDEnabled = $true
+            Write-Host "[OK] UCPD driver enabled (Start = 2)" -ForegroundColor Green
+        }
+        catch {
+            $results.Errors += "Failed to enable UCPD: $_"
+            Write-Error "Failed to enable UCPD driver: $_"
+        }
+
+        # Enable scheduled task
+        try {
+            Enable-ScheduledTask -TaskName "UCPD velocity" -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -ErrorAction Stop | Out-Null
+            $results.TaskEnabled = $true
+            Write-Host "[OK] UCPD velocity scheduled task enabled" -ForegroundColor Green
+        }
+        catch {
+            $results.Errors += "Failed to enable scheduled task: $_"
+            Write-Warning "Failed to enable UCPD scheduled task: $_"
+        }
+
+        # Log
+        $logEntry = @"
+================================================================================
+UCPD RE-ACTIVATION LOG
+================================================================================
+Timestamp:    $timestamp
+User:         $currentUser
+Reason:       $Reason
+UCPD Driver:  $(if ($results.UCPDEnabled) { "Enabled" } else { "FAILED" })
+Scheduled Task: $(if ($results.TaskEnabled) { "Enabled" } else { "FAILED" })
+================================================================================
+
+"@
+        try {
+            Add-Content -Path $LogPath -Value $logEntry -Encoding UTF8 -ErrorAction SilentlyContinue
+        }
+        catch {}
+
+        Write-Host ""
+        Write-Warning "A REBOOT is required for UCPD to become active again."
+
+        return [PSCustomObject]@{
+            Success        = $results.UCPDEnabled
+            UCPDEnabled    = $results.UCPDEnabled
+            TaskEnabled    = $results.TaskEnabled
+            RebootRequired = $true
+            Timestamp      = $timestamp
+            Reason         = $Reason
+            Errors         = $results.Errors
+        }
+    }
+}
+
 # ============================================================================
 # REGISTRY OPERATIONS
 # ============================================================================
@@ -1448,7 +1868,7 @@ Export-ModuleMember -Function @(
     'Set-PTA',
     'Remove-PTA',
     'Get-AllPTA',
-    # UCPD Management
+    # UCPD Management (Basic)
     'Test-UCPDEnabled',
     'Get-UCPDStatus',
     'Disable-UCPD',
@@ -1456,6 +1876,10 @@ Export-ModuleMember -Function @(
     'Get-UCPDScheduledTask',
     'Disable-UCPDScheduledTask',
     'Enable-UCPDScheduledTask',
+    # UCPD Management (Enterprise - with EDR check)
+    'Get-EDRStatus',
+    'Disable-UCPDSafely',
+    'Enable-UCPDSafely',
     # DISM Default Associations (Enterprise)
     'Export-DefaultAssociations',
     'Import-DefaultAssociations',

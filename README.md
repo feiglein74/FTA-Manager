@@ -33,7 +33,7 @@ Import-Module .\FTA-Manager.psd1
 | `Remove-PTA` | Protokoll-Zuordnung entfernen |
 | `Get-AllPTA` | Alle Protokoll-Zuordnungen auflisten |
 
-### UCPD-Verwaltung
+### UCPD-Verwaltung (Basic)
 
 | Funktion | Beschreibung |
 |----------|--------------|
@@ -41,6 +41,17 @@ Import-Module .\FTA-Manager.psd1
 | `Get-UCPDStatus` | Detaillierter UCPD-Status |
 | `Disable-UCPD` | UCPD deaktivieren (Admin + Reboot erforderlich) |
 | `Enable-UCPD` | UCPD aktivieren (Admin + Reboot erforderlich) |
+| `Get-UCPDScheduledTask` | Status des UCPD velocity Tasks |
+| `Disable-UCPDScheduledTask` | Verhindert UCPD Re-Aktivierung |
+| `Enable-UCPDScheduledTask` | Erlaubt UCPD Re-Aktivierung |
+
+### UCPD-Verwaltung (Enterprise mit EDR)
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `Get-EDRStatus` | Erkennt installierte EDR/XDR-Lösungen |
+| `Disable-UCPDSafely` | UCPD deaktivieren mit EDR-Check und Audit-Logging |
+| `Enable-UCPDSafely` | UCPD reaktivieren mit Logging |
 
 ### Enterprise-Deployment (DISM)
 
@@ -54,6 +65,8 @@ Import-Module .\FTA-Manager.psd1
 
 | Funktion | Beschreibung |
 |----------|--------------|
+| `Test-IsWindowsServer` | Prüft ob Windows Server (kein UCPD) |
+| `Open-DefaultAppsSettings` | Öffnet Windows-Einstellungen für manuelle Änderung |
 | `Find-ProgIdForExtension` | Verfügbare ProgIds für eine Extension finden |
 | `Get-RegisteredApplications` | Alle registrierten Anwendungen auflisten |
 
@@ -325,7 +338,99 @@ Set-FTA "Applications\photoviewer.dll" ".jpg"
 
 ---
 
-## UCPD deaktivieren (nicht empfohlen)
+## UCPD deaktivieren mit EDR/XDR (Enterprise-Strategie)
+
+In Enterprise-Umgebungen mit aktiver EDR/XDR-Lösung kann UCPD **verantwortungsvoll** deaktiviert werden, da der EDR den Schutz übernimmt.
+
+### Unterstützte EDR/XDR-Lösungen
+
+Das Modul erkennt automatisch:
+
+| EDR/XDR | Service Name |
+|---------|--------------|
+| Microsoft Defender for Endpoint | Sense |
+| CrowdStrike Falcon | CSFalconService |
+| SentinelOne | SentinelAgent |
+| VMware Carbon Black | CbDefense |
+| Palo Alto Cortex XDR | CortexXDR |
+| Sophos Endpoint | Sophos Endpoint Defense Service |
+
+### Funktionen
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `Get-EDRStatus` | Erkennt installierte EDR/XDR-Lösungen |
+| `Disable-UCPDSafely` | Deaktiviert UCPD mit EDR-Check und Logging |
+| `Enable-UCPDSafely` | Reaktiviert UCPD mit Logging |
+
+### Workflow
+
+```powershell
+# 1. EDR-Status prüfen
+Get-EDRStatus
+
+# 2. UCPD sicher deaktivieren (prüft EDR, loggt Aktion)
+Disable-UCPDSafely -Reason "FTA Deployment für Adobe Acrobat"
+
+# Output:
+# [OK] UCPD driver disabled (Start = 4)
+# [OK] UCPD velocity scheduled task disabled
+# [OK] Action logged to: C:\Windows\Logs\FTA-Manager\UCPD.log
+#
+# ========================================
+#  UCPD SUCCESSFULLY DISABLED
+# ========================================
+#  A REBOOT IS REQUIRED for changes to take effect!
+#  EDR Protection: Microsoft Defender for Endpoint
+
+# 3. REBOOT
+
+# 4. Nach Reboot: FTA setzen (funktioniert jetzt!)
+Set-FTA "AcroExch.Document.DC" ".pdf"
+Set-PTA "ChromeHTML" "http"
+
+# 5. Optional: UCPD wieder aktivieren
+Enable-UCPDSafely -Reason "FTA Deployment abgeschlossen"
+```
+
+### Was wird geloggt?
+
+Alle UCPD-Änderungen werden protokolliert in `C:\Windows\Logs\FTA-Manager\UCPD.log`:
+
+```
+================================================================================
+UCPD DEACTIVATION LOG
+================================================================================
+Timestamp:    2024-03-15 14:32:01
+Computer:     WORKSTATION01
+User:         DOMAIN\admin
+Reason:       FTA Deployment für Adobe Acrobat
+EDR Status:   PROTECTED
+EDR Products: Microsoft Defender for Endpoint
+
+Actions:
+  - UCPD Driver:    Disabled
+  - Scheduled Task: Disabled
+================================================================================
+```
+
+### Ohne EDR: Warnung
+
+Wenn kein EDR erkannt wird, verweigert `Disable-UCPDSafely` die Ausführung:
+
+```powershell
+PS> Disable-UCPDSafely -Reason "Test"
+
+WARNING: NO EDR/XDR PROTECTION DETECTED!
+Disabling UCPD without EDR protection is a security risk.
+
+# Mit -Force kann die Warnung umgangen werden (nicht empfohlen)
+Disable-UCPDSafely -Reason "Test" -Force
+```
+
+---
+
+## UCPD deaktivieren (manuell - nicht empfohlen)
 
 ### Warum "kurz deaktivieren" NICHT funktioniert
 
