@@ -414,7 +414,7 @@ Actions:
 ================================================================================
 ```
 
-### Ohne EDR: Warnung
+### Ohne EDR: Warnung und -Force
 
 Wenn kein EDR erkannt wird, verweigert `Disable-UCPDSafely` die Ausführung:
 
@@ -423,10 +423,35 @@ PS> Disable-UCPDSafely -Reason "Test"
 
 WARNING: NO EDR/XDR PROTECTION DETECTED!
 Disabling UCPD without EDR protection is a security risk.
-
-# Mit -Force kann die Warnung umgangen werden (nicht empfohlen)
-Disable-UCPDSafely -Reason "Test" -Force
 ```
+
+Mit `-Force` kann trotzdem fortgefahren werden - es erscheint dann eine deutliche Warnung:
+
+```powershell
+PS> Disable-UCPDSafely -Reason "Bewusste Entscheidung ohne EDR" -Force
+
+╔══════════════════════════════════════════════════════════════════╗
+║                    ⚠️  SECURITY WARNING  ⚠️                       ║
+╠══════════════════════════════════════════════════════════════════╣
+║  You are disabling UCPD WITHOUT EDR/XDR protection!              ║
+║                                                                  ║
+║  RISKS:                                                          ║
+║  • Malware can hijack your default browser                       ║
+║  • Malware can redirect PDF files to malicious readers           ║
+║  • Phishing attacks become easier                                ║
+║  • No endpoint protection to detect malicious changes            ║
+║                                                                  ║
+║  This action will be logged for audit purposes.                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+WARNING: Proceeding WITHOUT EDR protection as -Force was specified...
+
+[OK] UCPD driver disabled (Start = 4)
+[OK] UCPD velocity scheduled task disabled
+[OK] Action logged to: C:\Windows\Logs\FTA-Manager\UCPD.log
+```
+
+**Wichtig:** Auch mit `-Force` wird die Aktion vollständig geloggt für Audit-Zwecke.
 
 ---
 

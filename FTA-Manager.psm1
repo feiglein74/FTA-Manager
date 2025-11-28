@@ -730,6 +730,27 @@ If you have EDR that wasn't detected, or accept the risk, use -Force.
         }
     }
 
+    # Show strong warning when -Force is used without EDR
+    if (-not $edrStatus.IsProtected -and $Force) {
+        Write-Host ""
+        Write-Host "╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Red
+        Write-Host "║                    ⚠️  SECURITY WARNING  ⚠️                       ║" -ForegroundColor Red
+        Write-Host "╠══════════════════════════════════════════════════════════════════╣" -ForegroundColor Red
+        Write-Host "║  You are disabling UCPD WITHOUT EDR/XDR protection!              ║" -ForegroundColor Red
+        Write-Host "║                                                                  ║" -ForegroundColor Red
+        Write-Host "║  RISKS:                                                          ║" -ForegroundColor Yellow
+        Write-Host "║  • Malware can hijack your default browser                       ║" -ForegroundColor Yellow
+        Write-Host "║  • Malware can redirect PDF files to malicious readers           ║" -ForegroundColor Yellow
+        Write-Host "║  • Phishing attacks become easier                                ║" -ForegroundColor Yellow
+        Write-Host "║  • No endpoint protection to detect malicious changes            ║" -ForegroundColor Yellow
+        Write-Host "║                                                                  ║" -ForegroundColor Red
+        Write-Host "║  This action will be logged for audit purposes.                  ║" -ForegroundColor Cyan
+        Write-Host "╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Red
+        Write-Host ""
+        Write-Warning "Proceeding WITHOUT EDR protection as -Force was specified..."
+        Write-Host ""
+    }
+
     if ($PSCmdlet.ShouldProcess("UCPD", "Disable safely with logging")) {
         $results = @{
             UCPDDisabled = $false
