@@ -491,6 +491,24 @@ function Set-RegistryUserChoice {
         New-Item -Path $parentPath -Force -ErrorAction SilentlyContinue | Out-Null
     }
 
+    # Remove DENY ACL rules that block write access
+    if (Test-Path $regPath) {
+        try {
+            $acl = Get-Acl -Path $regPath
+            $denyRules = $acl.Access | Where-Object { $_.AccessControlType -eq 'Deny' }
+            if ($denyRules) {
+                foreach ($rule in $denyRules) {
+                    $acl.RemoveAccessRule($rule) | Out-Null
+                    Write-Verbose "Removed DENY rule for $($rule.IdentityReference)"
+                }
+                Set-Acl -Path $regPath -AclObject $acl
+            }
+        }
+        catch {
+            Write-Verbose "Could not modify ACL: $($_.Exception.Message)"
+        }
+    }
+
     # Remove existing UserChoice key using .NET Registry API (more reliable)
     $deleteError = $null
     if (Test-Path $regPath) {
