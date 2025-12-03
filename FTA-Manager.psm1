@@ -41,6 +41,14 @@ Mehr Infos: Get-Help about_UCPD
 "@
         UCPDProtectedError = "UCPD-Schutz aktiv"
         UCPDModifyError = "UserChoice kann nicht geaendert werden - Schluessel ist geschuetzt (UCPD aktiv). UCPD mit Disable-UCPD deaktivieren und neu starten."
+        RegistryProtectedError = @"
+UserChoice-Schluessel ist schreibgeschuetzt (Registry-ACL).
+
+Loesungsmoeglichkeiten:
+  1. SetFTA.exe verwenden: .\src\SetFTA\bin\Release\net472\SetFTA.exe
+  2. Manuell in Windows-Einstellungen: Einstellungen > Apps > Standard-Apps
+  3. ACL-Berechtigung auf dem Registry-Schluessel pruefen/aendern
+"@
     }
     'en' = @{
         UCPDExtensionWarning = @"
@@ -65,6 +73,14 @@ For more info: Get-Help about_UCPD
 "@
         UCPDProtectedError = "UCPD protection active"
         UCPDModifyError = "Cannot modify UserChoice - key is protected (UCPD active). Disable UCPD with Disable-UCPD and reboot."
+        RegistryProtectedError = @"
+UserChoice key is write-protected (Registry ACL).
+
+Options to resolve this:
+  1. Use SetFTA.exe: .\src\SetFTA\bin\Release\net472\SetFTA.exe
+  2. Manually in Windows Settings: Settings > Apps > Default Apps
+  3. Check/modify ACL permissions on the registry key
+"@
     }
 }
 
@@ -503,9 +519,13 @@ function Set-RegistryUserChoice {
         [Microsoft.Win32.Registry]::SetValue($regPathWin32, "Hash", $Hash)
     }
     catch {
-        # If delete failed and write failed, report UCPD-specific error
+        # If delete failed and write failed, report appropriate error
         if ($deleteError) {
-            throw (Get-LocalizedMessage -MessageKey 'UCPDModifyError')
+            if (Test-UCPDEnabled) {
+                throw (Get-LocalizedMessage -MessageKey 'UCPDModifyError')
+            } else {
+                throw (Get-LocalizedMessage -MessageKey 'RegistryProtectedError')
+            }
         }
 
         # Fallback to PowerShell method with explicit error handling
