@@ -14,6 +14,87 @@
 #>
 
 # ============================================================================
+# LOCALIZATION
+# ============================================================================
+
+$script:Messages = @{
+    'de' = @{
+        UCPDExtensionWarning = @"
+Die Extension '{0}' ist durch UCPD (User Choice Protection Driver) geschuetzt.
+
+Loesungsmoeglichkeiten:
+  1. 'Disable-UCPD' als Administrator ausfuehren, dann NEUSTART erforderlich
+  2. -Force verwenden (schlaegt fehl, wenn UserChoice bereits existiert)
+  3. SetFTA.exe verwenden: .\src\SetFTA\bin\Release\net472\SetFTA.exe set-fta <ProgId> {0}
+
+Mehr Infos: Get-Help about_UCPD
+"@
+        UCPDProtocolWarning = @"
+Das Protokoll '{0}' ist durch UCPD (User Choice Protection Driver) geschuetzt.
+
+Loesungsmoeglichkeiten:
+  1. 'Disable-UCPD' als Administrator ausfuehren, dann NEUSTART erforderlich
+  2. -Force verwenden (schlaegt fehl, wenn UserChoice bereits existiert)
+  3. SetFTA.exe verwenden: .\src\SetFTA\bin\Release\net472\SetFTA.exe set-pta <ProgId> {0}
+
+Mehr Infos: Get-Help about_UCPD
+"@
+        UCPDProtectedError = "UCPD-Schutz aktiv"
+        UCPDModifyError = "UserChoice kann nicht geaendert werden - Schluessel ist geschuetzt (UCPD aktiv). UCPD mit Disable-UCPD deaktivieren und neu starten."
+    }
+    'en' = @{
+        UCPDExtensionWarning = @"
+Extension '{0}' is protected by UCPD (User Choice Protection Driver).
+
+Options to resolve this:
+  1. Run 'Disable-UCPD' as Administrator, then REBOOT the system
+  2. Use -Force to attempt anyway (will fail if UserChoice already exists)
+  3. Use SetFTA.exe: .\src\SetFTA\bin\Release\net472\SetFTA.exe set-fta <ProgId> {0}
+
+For more info: Get-Help about_UCPD
+"@
+        UCPDProtocolWarning = @"
+Protocol '{0}' is protected by UCPD (User Choice Protection Driver).
+
+Options to resolve this:
+  1. Run 'Disable-UCPD' as Administrator, then REBOOT the system
+  2. Use -Force to attempt anyway (will fail if UserChoice already exists)
+  3. Use SetFTA.exe: .\src\SetFTA\bin\Release\net472\SetFTA.exe set-pta <ProgId> {0}
+
+For more info: Get-Help about_UCPD
+"@
+        UCPDProtectedError = "UCPD protection active"
+        UCPDModifyError = "Cannot modify UserChoice - key is protected (UCPD active). Disable UCPD with Disable-UCPD and reboot."
+    }
+}
+
+function Get-LocalizedMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$MessageKey,
+
+        [Parameter()]
+        [string[]]$Arguments
+    )
+
+    # Check thread culture first (allows override), then fall back to system UI culture
+    $lang = [System.Threading.Thread]::CurrentThread.CurrentUICulture.TwoLetterISOLanguageName
+    if (-not $script:Messages.ContainsKey($lang)) {
+        $lang = (Get-UICulture).TwoLetterISOLanguageName
+    }
+    if (-not $script:Messages.ContainsKey($lang)) {
+        $lang = 'en'
+    }
+
+    $message = $script:Messages[$lang][$MessageKey]
+    if ($Arguments) {
+        $message = $message -f $Arguments
+    }
+    return $message
+}
+
+# ============================================================================
 # INTERNAL HELPER FUNCTIONS
 # ============================================================================
 
@@ -388,26 +469,45 @@ function Set-RegistryUserChoice {
         $regPathWin32 = "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
     }
 
+    # Ensure parent path exists
+    $parentPath = Split-Path $regPath -Parent
+    if (-not (Test-Path $parentPath)) {
+        New-Item -Path $parentPath -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+
     # Remove existing UserChoice key using .NET Registry API (more reliable)
+    $deleteError = $null
     if (Test-Path $regPath) {
         try {
-            $parentPath = Split-Path $regPath -Parent
             $keyName = Split-Path $regPath -Leaf
             $parentKey = Get-Item $parentPath
-            $parentKey.DeleteSubKeyTree($keyName, $false)
+            $parentKey.DeleteSubKey($keyName)
         }
         catch {
-            Remove-Item -Path $regPath -Force -Recurse -ErrorAction SilentlyContinue
+            $deleteError = $_
+            # Key exists but cannot be deleted - likely UCPD protection
+            Write-Verbose "Could not delete existing UserChoice key: $($_.Exception.Message)"
         }
     }
 
-    # Use Win32 API for setting values (more reliable across Windows versions)
+    # Set the registry values
     $writeError = $null
     try {
-        [Microsoft.Win32.Registry]::SetValue($regPathWin32, "Hash", $Hash)
+        # Create key if it doesn't exist (or was successfully deleted)
+        if (-not (Test-Path $regPath)) {
+            New-Item -Path $regPath -Force -ErrorAction Stop | Out-Null
+        }
+
+        # Try to set values - this will work if key is new or we have write access
         [Microsoft.Win32.Registry]::SetValue($regPathWin32, "ProgId", $ProgId)
+        [Microsoft.Win32.Registry]::SetValue($regPathWin32, "Hash", $Hash)
     }
     catch {
+        # If delete failed and write failed, report UCPD-specific error
+        if ($deleteError) {
+            throw (Get-LocalizedMessage -MessageKey 'UCPDModifyError')
+        }
+
         # Fallback to PowerShell method with explicit error handling
         try {
             New-Item -Path $regPath -Force -ErrorAction Stop | Out-Null
@@ -533,12 +633,12 @@ function Set-FTA {
     # Check for UCPD-protected extensions
     $protectedExtensions = @(".pdf", ".htm", ".html")
     if ($Extension -in $protectedExtensions -and (Test-UCPDEnabled) -and -not $Force) {
-        Write-Warning "Extension '$Extension' is protected by UCPD. Use Disable-UCPD (requires Admin + Reboot) or -Force to attempt anyway."
+        Write-Warning (Get-LocalizedMessage -MessageKey 'UCPDExtensionWarning' -Arguments $Extension)
         return [PSCustomObject]@{
             Extension = $Extension
             ProgId    = $ProgId
             Success   = $false
-            Error     = "UCPD protection active"
+            Error     = (Get-LocalizedMessage -MessageKey 'UCPDProtectedError')
         }
     }
 
@@ -713,12 +813,12 @@ function Set-PTA {
     # Check for UCPD-protected protocols
     $protectedProtocols = @("http", "https")
     if ($Protocol -in $protectedProtocols -and (Test-UCPDEnabled) -and -not $Force) {
-        Write-Warning "Protocol '$Protocol' is protected by UCPD. Use Disable-UCPD (requires Admin + Reboot) or -Force to attempt anyway."
+        Write-Warning (Get-LocalizedMessage -MessageKey 'UCPDProtocolWarning' -Arguments $Protocol)
         return [PSCustomObject]@{
             Protocol = $Protocol
             ProgId   = $ProgId
             Success  = $false
-            Error    = "UCPD protection active"
+            Error    = (Get-LocalizedMessage -MessageKey 'UCPDProtectedError')
         }
     }
 
