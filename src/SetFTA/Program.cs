@@ -70,9 +70,10 @@ namespace SetFTA
                     Console.WriteLine("  Protected protocols: http, https");
                     Console.WriteLine();
                     Console.WriteLine("  Options:");
-                    Console.WriteLine("    1. User changes manually in Windows Settings");
-                    Console.WriteLine("    2. Disable UCPD (requires Admin + Reboot)");
-                    Console.WriteLine("    3. Use DISM for new user profiles");
+                    Console.WriteLine("    1. Run this tool as Administrator (regini.exe bypass)");
+                    Console.WriteLine("    2. User changes manually in Windows Settings");
+                    Console.WriteLine("    3. Disable UCPD (requires Admin + Reboot)");
+                    Console.WriteLine("    4. Use DISM for new user profiles");
                 }
 
                 return 1;
@@ -124,9 +125,13 @@ NOTE:
     - .pdf, .htm, .html extensions
     - http, https protocols
 
-  This tool attempts to bypass UCPD by using direct Win32 API calls
-  from a custom executable. This may or may not work depending on
-  Windows version and UCPD updates.
+  NEW in v1.2.0: For UCPD-protected extensions/protocols, this tool
+  automatically uses regini.exe bypass method when running as Administrator.
+  This method was discovered by reverse-engineering PDF-XChange Editor.
+
+  For best results with .pdf, .htm, .html, http, https:
+    - Run as Administrator
+    - The tool will automatically use regini.exe method
 ");
         }
 

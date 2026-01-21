@@ -49,6 +49,8 @@ Loesungsmoeglichkeiten:
   2. Manuell in Windows-Einstellungen: Einstellungen > Apps > Standard-Apps
   3. ACL-Berechtigung auf dem Registry-Schluessel pruefen/aendern
 "@
+        ReginiSuccess = "Verwende regini.exe fuer UCPD-geschuetzte Extension {0}"
+        ReginiFallback = "regini.exe fehlgeschlagen (keine Admin-Rechte?), verwende Standard-Methode fuer {0}..."
     }
     'en' = @{
         UCPDExtensionWarning = @"
@@ -81,6 +83,8 @@ Options to resolve this:
   2. Manually in Windows Settings: Settings > Apps > Default Apps
   3. Check/modify ACL permissions on the registry key
 "@
+        ReginiSuccess = "Using regini.exe for UCPD-protected extension {0}"
+        ReginiFallback = "regini.exe failed (no admin rights?), falling back to standard method for {0}..."
     }
 }
 
@@ -305,6 +309,223 @@ function Get-UserChoiceHash {
     $baseInfo = "$Extension$UserSid$ProgId$Timestamp$userExperience".ToLower()
 
     return Get-Hash -BaseInfo $baseInfo
+}
+
+# ============================================================================
+# UCPD PROTECTED EXTENSIONS/PROTOCOLS
+# ============================================================================
+
+$script:UCPDProtectedExtensions = @('.pdf', '.htm', '.html')
+$script:UCPDProtectedProtocols = @('http', 'https')
+
+function Test-IsUCPDProtected {
+    <#
+    .SYNOPSIS
+        Tests if an extension or protocol is protected by UCPD
+
+    .DESCRIPTION
+        UCPD (User Choice Protection Driver) blocks programmatic changes to certain
+        file type and protocol associations. This function checks if a given
+        extension or protocol is on the protected list.
+
+    .PARAMETER Extension
+        The file extension to check (e.g., ".pdf")
+
+    .PARAMETER Protocol
+        The protocol to check (e.g., "http")
+
+    .OUTPUTS
+        [bool] True if protected by UCPD, False otherwise
+
+    .EXAMPLE
+        Test-IsUCPDProtected -Extension ".pdf"
+        # Returns: True
+
+    .EXAMPLE
+        Test-IsUCPDProtected -Extension ".txt"
+        # Returns: False
+
+    .EXAMPLE
+        Test-IsUCPDProtected -Protocol "http"
+        # Returns: True
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(ParameterSetName = 'Extension')]
+        [string]$Extension,
+
+        [Parameter(ParameterSetName = 'Protocol')]
+        [string]$Protocol
+    )
+
+    if ($Extension) {
+        if (-not $Extension.StartsWith('.')) {
+            $Extension = ".$Extension"
+        }
+        return ($Extension.ToLower() -in $script:UCPDProtectedExtensions)
+    }
+
+    if ($Protocol) {
+        return ($Protocol.ToLower() -in $script:UCPDProtectedProtocols)
+    }
+
+    return $false
+}
+
+# ============================================================================
+# REGINI.EXE BYPASS FUNCTIONS (for UCPD-protected extensions)
+# ============================================================================
+
+function Test-IsAdmin {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Set-UserChoiceViaRegini {
+    <#
+    .SYNOPSIS
+        Sets UserChoice via regini.exe (bypasses UCPD)
+
+    .DESCRIPTION
+        Internal function that uses regini.exe to set file type or protocol associations.
+        This method bypasses UCPD protection by using an undocumented [DELETE] syntax
+        discovered through reverse-engineering PDF-XChange Editor.
+
+        The method:
+        1. Deletes the existing UserChoice key using regini.exe [DELETE]
+        2. Creates a new key and writes ProgId + Hash using regini.exe
+
+    .PARAMETER Extension
+        The file extension or protocol (e.g., ".pdf" or "http")
+
+    .PARAMETER ProgId
+        The programmatic identifier (e.g., "ChromePDF")
+
+    .PARAMETER IsProtocol
+        Switch to indicate this is a protocol, not a file extension
+
+    .OUTPUTS
+        [bool] True if successful, False otherwise
+
+    .NOTES
+        Requires Administrator privileges!
+        Based on reverse-engineering of PDF-XChange Editor (January 2026)
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Extension,
+
+        [Parameter(Mandatory)]
+        [string]$ProgId,
+
+        [Parameter()]
+        [switch]$IsProtocol
+    )
+
+    # Admin check
+    if (-not (Test-IsAdmin)) {
+        Write-Verbose "Set-UserChoiceViaRegini requires Administrator privileges"
+        return $false
+    }
+
+    # Get user SID
+    $userSid = Get-UserSid
+
+    # Build registry path (NT format for regini)
+    if ($IsProtocol) {
+        $regPath = "\Registry\User\$userSid\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Extension\UserChoice"
+    }
+    else {
+        $regPath = "\Registry\User\$userSid\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
+    }
+
+    # Calculate timestamp and hash
+    $timestamp = Get-HexDateTime
+    $hash = Get-UserChoiceHash -Extension $Extension -UserSid $userSid -ProgId $ProgId -Timestamp $timestamp
+
+    Write-Verbose "Set-UserChoiceViaRegini: $Extension -> $ProgId (Hash: $hash)"
+
+    # Create temp folder for INI files
+    $tempFolder = Join-Path $env:TEMP ([Guid]::NewGuid().ToString('N'))
+    try {
+        New-Item -ItemType Directory -Path $tempFolder -Force -ErrorAction Stop | Out-Null
+
+        # Create DELETE INI file
+        $deleteIni = Join-Path $tempFolder 'delete.ini'
+        $deleteContent = "$regPath [DELETE]`r`n"
+        [System.IO.File]::WriteAllText($deleteIni, $deleteContent, [System.Text.Encoding]::ASCII)
+
+        # Create SET INI file
+        $setIni = Join-Path $tempFolder 'set.ini'
+        $setContent = @"
+$regPath
+ProgId="$ProgId"
+Hash="$hash"
+0
+"@
+        [System.IO.File]::WriteAllText($setIni, $setContent, [System.Text.Encoding]::ASCII)
+
+        # Execute regini.exe - DELETE
+        Write-Verbose "Executing regini.exe DELETE..."
+        $null = & regini.exe $deleteIni 2>&1
+        $deleteExitCode = $LASTEXITCODE
+
+        if ($deleteExitCode -ne 0) {
+            Write-Verbose "regini.exe DELETE returned exit code $deleteExitCode (may be OK if key didn't exist)"
+        }
+
+        # Brief pause
+        Start-Sleep -Milliseconds 100
+
+        # Execute regini.exe - SET
+        Write-Verbose "Executing regini.exe SET..."
+        $setResult = & regini.exe $setIni 2>&1
+        $setExitCode = $LASTEXITCODE
+
+        if ($setExitCode -ne 0) {
+            Write-Verbose "regini.exe SET failed with exit code $setExitCode : $setResult"
+            return $false
+        }
+
+        # Verify
+        if ($IsProtocol) {
+            $verifyPath = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Extension\UserChoice"
+        }
+        else {
+            $verifyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
+        }
+
+        if (Test-Path $verifyPath) {
+            $currentProgId = (Get-ItemProperty -Path $verifyPath -ErrorAction SilentlyContinue).ProgId
+            if ($currentProgId -eq $ProgId) {
+                Write-Verbose "Set-UserChoiceViaRegini: SUCCESS - Verified $Extension -> $currentProgId"
+                return $true
+            }
+            else {
+                Write-Verbose "Set-UserChoiceViaRegini: Verification failed - expected '$ProgId', got '$currentProgId'"
+                return $false
+            }
+        }
+        else {
+            Write-Verbose "Set-UserChoiceViaRegini: Verification failed - UserChoice key does not exist"
+            return $false
+        }
+    }
+    catch {
+        Write-Verbose "Set-UserChoiceViaRegini failed: $($_.Exception.Message)"
+        return $false
+    }
+    finally {
+        # Cleanup temp folder
+        if (Test-Path $tempFolder) {
+            Remove-Item $tempFolder -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # ============================================================================
@@ -637,20 +858,26 @@ function Set-FTA {
     .SYNOPSIS
         Sets the file type association for an extension
 
+    .DESCRIPTION
+        Sets the file type association for a given extension. For UCPD-protected extensions
+        (.pdf, .htm, .html), this function automatically attempts to use the regini.exe
+        bypass method if running with Administrator privileges.
+
     .PARAMETER ProgId
         The programmatic identifier (e.g., "AcroExch.Document.DC", "Applications\notepad.exe")
 
     .PARAMETER Extension
         The file extension (e.g., ".pdf")
 
-    .PARAMETER Force
-        Bypass UCPD warning for protected extensions
-
     .EXAMPLE
         Set-FTA "AcroExch.Document.DC" ".pdf"
 
     .EXAMPLE
         Set-FTA "Applications\notepad.exe" ".txt"
+
+    .EXAMPLE
+        # For UCPD-protected extensions, run as Administrator for best results
+        Set-FTA "ChromePDF" ".pdf" -Verbose
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -658,29 +885,46 @@ function Set-FTA {
         [string]$ProgId,
 
         [Parameter(Mandatory, Position = 1)]
-        [string]$Extension,
-
-        [Parameter()]
-        [switch]$Force
+        [string]$Extension
     )
 
     if (-not $Extension.StartsWith(".")) {
         $Extension = ".$Extension"
     }
 
-    # Check for UCPD-protected extensions
-    $protectedExtensions = @(".pdf", ".htm", ".html")
-    if ($Extension -in $protectedExtensions -and (Test-UCPDEnabled) -and -not $Force) {
-        Write-Warning (Get-LocalizedMessage -MessageKey 'UCPDExtensionWarning' -Arguments $Extension)
-        return [PSCustomObject]@{
-            Extension = $Extension
-            ProgId    = $ProgId
-            Success   = $false
-            Error     = (Get-LocalizedMessage -MessageKey 'UCPDProtectedError')
-        }
-    }
+    # Check if this is a UCPD-protected extension
+    $isUCPDProtected = Test-IsUCPDProtected -Extension $Extension
+    $ucpdEnabled = Test-UCPDEnabled
 
     if ($PSCmdlet.ShouldProcess("$Extension -> $ProgId", "Set File Type Association")) {
+
+        # For UCPD-protected extensions: try regini method first
+        if ($isUCPDProtected -and $ucpdEnabled) {
+            Write-Verbose (Get-LocalizedMessage -MessageKey 'ReginiSuccess' -Arguments $Extension)
+
+            # Set toast notification first
+            Set-ApplicationAssociationToast -Extension $Extension -ProgId $ProgId
+
+            $reginiSuccess = Set-UserChoiceViaRegini -Extension $Extension -ProgId $ProgId
+
+            if ($reginiSuccess) {
+                # Verify and return
+                $verification = Get-RegistryUserChoice -Extension $Extension
+                return [PSCustomObject]@{
+                    Extension = $Extension
+                    ProgId    = $ProgId
+                    Hash      = $verification.Hash
+                    Success   = $true
+                    Method    = 'Regini'
+                }
+            }
+            else {
+                # Regini failed - warn and fall back to standard method
+                Write-Warning (Get-LocalizedMessage -MessageKey 'ReginiFallback' -Arguments $Extension)
+            }
+        }
+
+        # Standard method (for non-protected extensions, or as fallback)
         try {
             $userSid = Get-UserSid
             $timestamp = Get-HexDateTime
@@ -696,6 +940,7 @@ function Set-FTA {
                 ProgId    = $ProgId
                 Hash      = $hash
                 Success   = $true
+                Method    = 'Registry'
             }
         }
         catch {
@@ -705,6 +950,7 @@ function Set-FTA {
                 ProgId    = $ProgId
                 Success   = $false
                 Error     = $_.Exception.Message
+                Method    = 'Registry'
             }
         }
     }
@@ -821,20 +1067,26 @@ function Set-PTA {
     .SYNOPSIS
         Sets the protocol association
 
+    .DESCRIPTION
+        Sets the protocol association for a given protocol. For UCPD-protected protocols
+        (http, https), this function automatically attempts to use the regini.exe
+        bypass method if running with Administrator privileges.
+
     .PARAMETER ProgId
         The programmatic identifier (e.g., "ChromeHTML", "MSEdgeHTM")
 
     .PARAMETER Protocol
         The protocol (e.g., "http", "https")
 
-    .PARAMETER Force
-        Bypass UCPD warning
-
     .EXAMPLE
         Set-PTA "ChromeHTML" "http"
 
     .EXAMPLE
         Set-PTA "FirefoxURL-308046B0AF4A39CB" "https"
+
+    .EXAMPLE
+        # For UCPD-protected protocols, run as Administrator for best results
+        Set-PTA "ChromeHTML" "http" -Verbose
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -842,25 +1094,42 @@ function Set-PTA {
         [string]$ProgId,
 
         [Parameter(Mandatory, Position = 1)]
-        [string]$Protocol,
-
-        [Parameter()]
-        [switch]$Force
+        [string]$Protocol
     )
 
-    # Check for UCPD-protected protocols
-    $protectedProtocols = @("http", "https")
-    if ($Protocol -in $protectedProtocols -and (Test-UCPDEnabled) -and -not $Force) {
-        Write-Warning (Get-LocalizedMessage -MessageKey 'UCPDProtocolWarning' -Arguments $Protocol)
-        return [PSCustomObject]@{
-            Protocol = $Protocol
-            ProgId   = $ProgId
-            Success  = $false
-            Error    = (Get-LocalizedMessage -MessageKey 'UCPDProtectedError')
-        }
-    }
+    # Check if this is a UCPD-protected protocol
+    $isUCPDProtected = Test-IsUCPDProtected -Protocol $Protocol
+    $ucpdEnabled = Test-UCPDEnabled
 
     if ($PSCmdlet.ShouldProcess("$Protocol -> $ProgId", "Set Protocol Association")) {
+
+        # For UCPD-protected protocols: try regini method first
+        if ($isUCPDProtected -and $ucpdEnabled) {
+            Write-Verbose (Get-LocalizedMessage -MessageKey 'ReginiSuccess' -Arguments $Protocol)
+
+            # Set toast notification first
+            Set-ApplicationAssociationToast -Extension $Protocol -ProgId $ProgId
+
+            $reginiSuccess = Set-UserChoiceViaRegini -Extension $Protocol -ProgId $ProgId -IsProtocol
+
+            if ($reginiSuccess) {
+                # Verify and return
+                $verification = Get-RegistryUserChoice -Extension $Protocol -Protocol
+                return [PSCustomObject]@{
+                    Protocol = $Protocol
+                    ProgId   = $ProgId
+                    Hash     = $verification.Hash
+                    Success  = $true
+                    Method   = 'Regini'
+                }
+            }
+            else {
+                # Regini failed - warn and fall back to standard method
+                Write-Warning (Get-LocalizedMessage -MessageKey 'ReginiFallback' -Arguments $Protocol)
+            }
+        }
+
+        # Standard method (for non-protected protocols, or as fallback)
         try {
             $userSid = Get-UserSid
             $timestamp = Get-HexDateTime
@@ -876,6 +1145,7 @@ function Set-PTA {
                 ProgId   = $ProgId
                 Hash     = $hash
                 Success  = $true
+                Method   = 'Registry'
             }
         }
         catch {
@@ -885,6 +1155,7 @@ function Set-PTA {
                 ProgId   = $ProgId
                 Success  = $false
                 Error    = $_.Exception.Message
+                Method   = 'Registry'
             }
         }
     }
@@ -1895,6 +2166,7 @@ Export-ModuleMember -Function @(
     'Get-UCPDStatus',
     'Disable-UCPD',
     'Enable-UCPD',
+    'Test-IsUCPDProtected',
     # UCPD Scheduled Task Management
     'Get-UCPDScheduledTask',
     'Disable-UCPDScheduledTask',

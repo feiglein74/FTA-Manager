@@ -21,4 +21,18 @@ Thumbs.db
 # Temporäre Dateien
 *.tmp
 *~
+
+# Claude Code (projekt-spezifischer Kontext, nicht für andere relevant)
 .claude/
+CLAUDE.md
+
+# Procmon Logs (enthalten sensitive System-Informationen)
+tools/*.csv
+tools/*.CSV
+
+# C# Build Artefakte
+bin/
+obj/
+*.exe
+*.dll
+*.pdb

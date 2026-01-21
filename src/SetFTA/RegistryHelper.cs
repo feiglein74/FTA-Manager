@@ -63,18 +63,46 @@ namespace SetFTA
 
         /// <summary>
         /// Sets a file type association (FTA).
+        /// For UCPD-protected extensions (.pdf, .htm, .html), automatically tries regini.exe first.
         /// </summary>
         public static bool SetFileTypeAssociation(string extension, string progId, string hash)
         {
+            // For UCPD-protected extensions: try regini method first
+            if (ReginiHelper.IsProtectedExtension(extension))
+            {
+                Console.WriteLine($"[INFO] {extension} is UCPD-protected, trying regini.exe method...");
+
+                if (ReginiHelper.SetFileTypeAssociationViaRegini(extension, progId, hash))
+                {
+                    return true;
+                }
+
+                Console.WriteLine("[INFO] regini.exe failed, falling back to standard methods...");
+            }
+
             string basePath = $@"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{extension}";
             return SetUserChoice(basePath, progId, hash);
         }
 
         /// <summary>
         /// Sets a protocol association (PTA).
+        /// For UCPD-protected protocols (http, https), automatically tries regini.exe first.
         /// </summary>
         public static bool SetProtocolAssociation(string protocol, string progId, string hash)
         {
+            // For UCPD-protected protocols: try regini method first
+            if (ReginiHelper.IsProtectedProtocol(protocol))
+            {
+                Console.WriteLine($"[INFO] {protocol} is UCPD-protected, trying regini.exe method...");
+
+                if (ReginiHelper.SetProtocolAssociationViaRegini(protocol, progId, hash))
+                {
+                    return true;
+                }
+
+                Console.WriteLine("[INFO] regini.exe failed, falling back to standard methods...");
+            }
+
             string basePath = $@"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\{protocol}";
             return SetUserChoice(basePath, progId, hash);
         }

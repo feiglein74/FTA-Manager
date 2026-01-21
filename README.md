@@ -6,6 +6,24 @@ PowerShell-Modul zur Verwaltung von Windows File Type Associations (FTA) und Pro
 
 FTA-Manager ermöglicht das programmatische Setzen von Dateityp- und Protokoll-Zuordnungen unter Windows 10/11, indem es den korrekten UserChoice-Hash berechnet, den Windows seit Windows 8 zur Validierung benötigt.
 
+### NEU: UCPD-Bypass mit regini.exe (Januar 2026)
+
+**Durchbruch!** Wir haben eine Methode entdeckt, die auch UCPD-geschützte Extensions (`.pdf`, `.htm`, `http`, `https`) ändern kann - durch Reverse-Engineering von PDF-XChange Editor:
+
+```powershell
+# Als Administrator ausführen:
+.\tools\Set-FTA-Regini.ps1 -Extension ".pdf" -ProgId "ChromePDF"
+.\tools\Set-FTA-Regini.ps1 -Extension ".htm" -ProgId "ChromeHTML"
+```
+
+**Warum funktioniert das?**
+- Nutzt `regini.exe` (Windows-Systemtool) mit undokumentierter `[DELETE]` Syntax
+- Löscht den UserChoice-Key komplett → erstellt neuen → schreibt Werte
+- regini.exe wird nicht von UCPD blockiert (ist ein vertrauenswürdiges Systemtool)
+- Überlebt Neustarts! ✅
+
+Siehe [UCPD-Bypass mit regini.exe](#ucpd-bypass-mit-reginiexe-der-durchbruch) für Details.
+
 ## Installation
 
 ```powershell
@@ -217,12 +235,12 @@ Get-PTA "http"
 
 ### Übersicht nach Extension-Typ
 
-| Extension/Protokoll | Set-FTA/Set-PTA | Login-Script | DISM Import | GPO |
-|---------------------|-----------------|--------------|-------------|-----|
-| `.txt`, `.jpg`, `.docx`, etc. | ✅ | ✅ | ✅ | ✅ |
-| `.pdf`, `.htm`, `.html` | ❌ UCPD blockiert | ❌ | ✅ Nur neue User | ✅ |
-| `http`, `https` | ❌ UCPD blockiert | ❌ | ✅ Nur neue User | ✅ |
-| `mailto`, `tel`, etc. | ✅ | ✅ | ✅ | ✅ |
+| Extension/Protokoll | Set-FTA/Set-PTA | Set-FTA-Regini | Login-Script | DISM Import | GPO |
+|---------------------|-----------------|----------------|--------------|-------------|-----|
+| `.txt`, `.jpg`, `.docx`, etc. | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `.pdf`, `.htm`, `.html` | ❌ UCPD blockiert | ✅ **NEU!** | ❌ | ✅ Nur neue User | ✅ |
+| `http`, `https` | ❌ UCPD blockiert | ✅ **NEU!** | ❌ | ✅ Nur neue User | ✅ |
+| `mailto`, `tel`, etc. | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### Übersicht nach Szenario
 
@@ -230,20 +248,25 @@ Get-PTA "http"
 |----------|---------|-----------------------------------|
 | Einzelner PC, manuell | Windows-Einstellungen | ✅ Ja |
 | Einzelner PC, Script | `Set-FTA` / `Set-PTA` | ❌ Nein |
+| **Einzelner PC, Admin-Script** | **`Set-FTA-Regini.ps1`** | **✅ Ja (NEU!)** |
 | Neue Benutzerprofile | DISM Import | ✅ Ja |
 | Bestehende User, Enterprise | GPO + XML | ⚠️ Nur bei erstem Login nach GPO |
 | Bestehende User, Login-Script | `Set-FTA` im Script | ❌ Nein |
+| **Bestehende User, Admin-Deployment** | **`Set-FTA-Regini.ps1`** | **✅ Ja (NEU!)** |
 | Bestehende User, manuell | User ändert selbst | ✅ Ja |
 
-### Die harte Wahrheit für Enterprise-Admins
+### ~~Die harte Wahrheit~~ Die gute Nachricht für Enterprise-Admins
 
-**Für bestehende Benutzerprofile mit UCPD gibt es KEINEN programmatischen Weg, PDF/HTML/HTTP-Zuordnungen zu ändern.**
+~~Für bestehende Benutzerprofile mit UCPD gibt es KEINEN programmatischen Weg, PDF/HTML/HTTP-Zuordnungen zu ändern.~~
 
-Microsoft hat das absichtlich so implementiert. Die einzigen Optionen sind:
+**UPDATE Januar 2026:** Mit der `Set-FTA-Regini.ps1` Methode gibt es jetzt einen funktionierenden Weg!
 
-1. **User ändert es selbst** in Windows-Einstellungen → Standard-Apps
-2. **UCPD deaktivieren** (nicht empfohlen, Sicherheitsrisiko)
-3. **Neues Benutzerprofil** mit DISM-importierten Defaults
+**Optionen für UCPD-geschützte Extensions:**
+
+1. **NEU: `Set-FTA-Regini.ps1`** - Funktioniert mit Admin-Rechten, auch bei aktivem UCPD! ✅
+2. **User ändert es selbst** in Windows-Einstellungen → Standard-Apps
+3. **UCPD deaktivieren** (nicht empfohlen, Sicherheitsrisiko)
+4. **Neues Benutzerprofil** mit DISM-importierten Defaults
 
 ### Wie machen es Adobe, Chrome, Firefox und SetUserFTA?
 
@@ -339,6 +362,88 @@ Das erklärt, warum SetUserFTA ein permanentes Katz-und-Maus-Spiel mit Microsoft
 - [SetUserFTA FAQ](https://setuserfta.com/faq/)
 - [gHacks: UCPD stops non-Microsoft software](https://www.ghacks.net/2024/04/08/new-sneaky-windows-driver-ucdp-stops-non-microsoft-software-from-setting-defaults/)
 - [Adobe: Set Acrobat as default](https://helpx.adobe.com/acrobat/kb/not-default-pdf-owner-windows10.html)
+
+---
+
+## UCPD-Bypass mit regini.exe (Der Durchbruch!)
+
+### Entdeckung (Januar 2026)
+
+Durch Procmon-Analyse von **PDF-XChange Editor** haben wir entdeckt, wie dieses Programm die UserChoice-Zuordnung erfolgreich ändert - **auch bei aktivem UCPD**!
+
+### Das Geheimnis: regini.exe
+
+`regini.exe` ist ein Windows-Systemtool (seit Windows 2000) für Registry-Operationen. Es hat eine **undokumentierte `[DELETE]` Syntax**, die den Key vollständig löscht.
+
+**Warum funktioniert regini.exe?**
+1. Es ist ein **signiertes Windows-Systemtool** - wird nicht von UCPD blockiert
+2. Läuft als **erhöhter Admin-Prozess** - umgeht die DENY-ACL
+3. **Löscht den Key komplett** statt ihn zu modifizieren
+4. Der **neue Key hat keine DENY-ACL** - kann direkt beschrieben werden
+
+### Verwendung
+
+```powershell
+# Als Administrator ausführen!
+
+# PDF mit Chrome öffnen
+.\tools\Set-FTA-Regini.ps1 -Extension ".pdf" -ProgId "ChromePDF"
+
+# HTML mit Chrome öffnen
+.\tools\Set-FTA-Regini.ps1 -Extension ".htm" -ProgId "ChromeHTML"
+.\tools\Set-FTA-Regini.ps1 -Extension ".html" -ProgId "ChromeHTML"
+
+# Erst testen mit -WhatIf
+.\tools\Set-FTA-Regini.ps1 -Extension ".pdf" -ProgId "AcroExch.Document.DC" -WhatIf
+```
+
+### Wie es funktioniert
+
+Das Script führt einen **zweistufigen Prozess** aus:
+
+**Schritt 1: Key löschen** (DELETE.ini)
+```ini
+\Registry\User\<SID>\...\UserChoice [DELETE]
+```
+
+**Schritt 2: Neue Werte schreiben** (SET.ini)
+```ini
+\Registry\User\<SID>\...\UserChoice
+ProgId="<PROGID>"
+Hash="<HASH>"
+0
+```
+
+Der Hash wird korrekt berechnet (gleicher Algorithmus wie im Hauptmodul).
+
+### Wichtige Hinweise
+
+| Aspekt | Details |
+|--------|---------|
+| **Admin-Rechte** | Erforderlich! |
+| **UCPD aktiv** | Funktioniert trotzdem ✅ |
+| **Neustart** | Nicht erforderlich, Änderung sofort aktiv |
+| **Persistenz** | Überlebt Neustarts ✅ |
+| **Getestet mit** | `.pdf`, `.htm`, `.html` |
+
+### Einschränkungen
+
+- Erfordert **Administrator-Rechte** (nicht als normaler User)
+- Funktioniert nur für den **aktuellen Benutzer** (HKCU)
+- Für andere Benutzer müsste das Script im Kontext des jeweiligen Users laufen
+
+### Technische Details
+
+Die undokumentierte `[DELETE]` Syntax wurde durch Reverse-Engineering von PDF-XChange Editor entdeckt. Die Procmon-Logs zeigen:
+
+```
+08:18:44,1397771  regini.exe  RegDeleteKey  .pdf\UserChoice  SUCCESS
+08:18:44,1463787  PDFXEdit.exe  RegCreateKey  .pdf\UserChoice  REG_CREATED_NEW_KEY
+08:18:44,2386978  regini.exe  RegSetValue  ProgId = "PDFXEdit.PDF"
+08:18:44,2404794  regini.exe  RegSetValue  Hash = "h7GW3/yQOm8="
+```
+
+Siehe `tools/DENY-ACL-Research.md` für die vollständige Forschungsdokumentation.
 
 ---
 

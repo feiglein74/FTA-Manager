@@ -5,6 +5,40 @@ Alle wichtigen Änderungen an diesem Projekt werden in dieser Datei dokumentiert
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und dieses Projekt folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.0] - 2026-01-21 - UCPD-Bypass via regini.exe
+
+### Hinzugefügt
+
+- **Automatischer UCPD-Bypass in Set-FTA und Set-PTA** 🎉
+  - Für UCPD-geschützte Extensions (`.pdf`, `.htm`, `.html`) und Protokolle (`http`, `https`)
+  - Verwendet automatisch regini.exe wenn als Administrator ausgeführt
+  - Fallback auf Standard-Methode mit Warnung wenn regini.exe fehlschlägt
+  - Neue `Method` Property im Rückgabewert (`Regini` oder `Registry`)
+
+- **Neue Funktion: `Test-IsUCPDProtected`**
+  - Prüft ob eine Extension oder ein Protokoll UCPD-geschützt ist
+  - Parameter: `-Extension` oder `-Protocol`
+
+- **Interne Funktion: `Set-UserChoiceViaRegini`**
+  - Nutzt undokumentierte `[DELETE]` Syntax von regini.exe
+  - Entdeckt durch Reverse-Engineering von PDF-XChange Editor
+
+- **Standalone-Tool: `tools/Set-FTA-Regini.ps1`**
+  - Unabhängiges Script für direkten Bypass
+  - Nützlich für Tests und spezielle Anwendungsfälle
+
+- **Forschungsdokumentation**
+  - `DENY-ACL-Research.md` - Vollständige Dokumentation der Forschung
+  - `tools/README.md` - Übersicht der Tools
+  - Procmon-Logs als Beweise
+
+### Technische Details
+
+Die Methode basiert auf:
+1. regini.exe ist ein signiertes Windows-Systemtool (wird nicht von UCPD blockiert)
+2. Undokumentierte `[DELETE]` Syntax löscht den UserChoice-Key komplett
+3. Neuer Key hat keine DENY-ACL und kann beschrieben werden
+
 ## [1.1.0] - 2024-11-28
 
 ### Hinzugefügt

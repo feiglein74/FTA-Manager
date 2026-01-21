@@ -5,7 +5,7 @@
     RootModule        = 'FTA-Manager.psm1'
 
     # Version number of this module
-    ModuleVersion     = '1.1.0'
+    ModuleVersion     = '1.2.0'
 
     # ID used to uniquely identify this module
     GUID              = 'f8a7c3e1-5b2d-4a6f-9c8e-1d3b5a7f9e2c'
@@ -42,6 +42,7 @@
         'Get-UCPDStatus',
         'Disable-UCPD',
         'Enable-UCPD',
+        'Test-IsUCPDProtected',
         # UCPD Scheduled Task Management
         'Get-UCPDScheduledTask',
         'Disable-UCPDScheduledTask',
@@ -84,6 +85,13 @@
 
             # Release notes for this module
             ReleaseNotes = @'
+v1.2.0 - UCPD Bypass via regini.exe
+- NEW: Automatic UCPD bypass using regini.exe for protected extensions (.pdf, .htm, .html) and protocols (http, https)
+- NEW: Test-IsUCPDProtected - Check if extension/protocol is UCPD-protected
+- CHANGED: Set-FTA/Set-PTA now automatically use regini.exe method for UCPD-protected items when running as Administrator
+- CHANGED: Fallback to standard method with warning if regini.exe fails
+- Based on reverse-engineering of PDF-XChange Editor (January 2026)
+
 v1.1.0 - Enterprise Features & UCPD Safe Management
 - NEW: Test-IsWindowsServer - Detect Windows Server (no UCPD)
 - NEW: Get-UCPDScheduledTask / Disable-UCPDScheduledTask / Enable-UCPDScheduledTask
