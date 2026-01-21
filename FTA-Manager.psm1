@@ -404,6 +404,11 @@ function Set-UserChoiceViaRegini {
     .PARAMETER ProgId
         The programmatic identifier (e.g., "ChromePDF")
 
+    .PARAMETER UserSID
+        Optional: The SID of the target user. If specified, the function operates on
+        HKU\<SID>\... instead of the current user's HKCU. Used by FTA-Manager-Service
+        to set associations for other users.
+
     .PARAMETER IsProtocol
         Switch to indicate this is a protocol, not a file extension
 
@@ -424,6 +429,9 @@ function Set-UserChoiceViaRegini {
         [string]$ProgId,
 
         [Parameter()]
+        [string]$UserSID,
+
+        [Parameter()]
         [switch]$IsProtocol
     )
 
@@ -433,8 +441,8 @@ function Set-UserChoiceViaRegini {
         return $false
     }
 
-    # Get user SID
-    $userSid = Get-UserSid
+    # Get user SID - use provided SID or current user
+    $userSid = if ($UserSID) { $UserSID } else { Get-UserSid }
 
     # Build registry path (NT format for regini)
     if ($IsProtocol) {
@@ -492,12 +500,27 @@ Hash="$hash"
             return $false
         }
 
-        # Verify
-        if ($IsProtocol) {
-            $verifyPath = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Extension\UserChoice"
+        # Verify - use HKU: for foreign SIDs, HKCU: for current user
+        $currentUserSid = Get-UserSid
+        $useHKU = ($UserSID -and $UserSID -ne $currentUserSid)
+
+        if ($useHKU) {
+            # Foreign SID - use HKU: (requires Registry provider)
+            if ($IsProtocol) {
+                $verifyPath = "Registry::HKEY_USERS\$userSid\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Extension\UserChoice"
+            }
+            else {
+                $verifyPath = "Registry::HKEY_USERS\$userSid\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
+            }
         }
         else {
-            $verifyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
+            # Current user - use HKCU:
+            if ($IsProtocol) {
+                $verifyPath = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Extension\UserChoice"
+            }
+            else {
+                $verifyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
+            }
         }
 
         if (Test-Path $verifyPath) {

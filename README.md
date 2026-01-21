@@ -447,9 +447,146 @@ Siehe `tools/DENY-ACL-Research.md` für die vollständige Forschungsdokumentatio
 
 ---
 
+## Enterprise-Deployment: FTA-Manager-Service (Scheduled Task)
+
+Für Unternehmensumgebungen, in denen User keine Admin-Rechte haben, bietet der FTA-Manager-Service eine elegante Lösung: User können FTA-Änderungen **anfordern**, ein Scheduled Task mit SYSTEM-Rechten führt sie aus.
+
+### Architektur
+
+```
+[User-Kontext]                           [SYSTEM-Kontext]
+Logon-Script / GPO                       Scheduled Task "FTA-Manager-Service"
+(keine Admin-Rechte)                     (SYSTEM-Rechte)
+
+HKCU\Software\FTA-Manager\Requests\
+    .pdf = ChromePDF        ─────────►   Liest HKU\<SID>\...\Requests
+    .html = MSEdgeHTM                    Validiert ProgId
+                                         Berechnet Hash
+                                         Führt regini.exe aus
+                                         Löscht Request
+                                         Loggt nach EventLog
+```
+
+### Installation
+
+```powershell
+# Als Administrator ausführen:
+.\Install-FTAManagerService.ps1
+
+# Oder mit benutzerdefiniertem Pfad:
+.\Install-FTAManagerService.ps1 -InstallPath "D:\Tools\FTA-Manager"
+
+# Deinstallation:
+.\Install-FTAManagerService.ps1 -Uninstall
+```
+
+**Was wird installiert:**
+- `C:\Program Files\FTA-Manager\FTA-Manager-Service.ps1`
+- Scheduled Task `\FTA-Manager\FTA-Manager-Service`
+- EventLog Source `FTA-Manager` im Application-Log
+
+### User-Seite: FTA-Änderung anfordern
+
+User (oder Logon-Scripts/GPOs) schreiben ihre Wünsche in die Registry:
+
+```powershell
+# Im Logon-Script oder via GPO Registry Preference:
+$requestPath = "HKCU:\Software\FTA-Manager\Requests"
+if (-not (Test-Path $requestPath)) {
+    New-Item -Path $requestPath -Force | Out-Null
+}
+
+# FTA-Änderungen anfordern:
+Set-ItemProperty -Path $requestPath -Name ".pdf" -Value "ChromePDF"
+Set-ItemProperty -Path $requestPath -Name ".html" -Value "MSEdgeHTM"
+
+# Protokoll-Änderungen anfordern:
+Set-ItemProperty -Path $requestPath -Name "http" -Value "MSEdgeHTM"
+Set-ItemProperty -Path $requestPath -Name "https" -Value "MSEdgeHTM"
+```
+
+**GPO Registry Preference:**
+- Pfad: `HKCU\Software\FTA-Manager\Requests`
+- Wertname: `.pdf` (oder andere Extension/Protokoll)
+- Wertdaten: `ChromePDF` (oder andere ProgId)
+- Typ: `REG_SZ`
+
+### Trigger und Verarbeitung
+
+Der Scheduled Task wird ausgelöst:
+- **Trigger:** Bei Anmeldung eines beliebigen Benutzers + 30 Sekunden Verzögerung
+- **Ausführen als:** NT AUTHORITY\SYSTEM
+- **Timeout:** 5 Minuten
+
+Der Service:
+1. Durchsucht alle geladenen User-Hives (HKU)
+2. Liest Requests aus `HKU\<SID>\Software\FTA-Manager\Requests`
+3. Validiert jede ProgId (existiert in HKCR?)
+4. Berechnet den korrekten UserChoice-Hash
+5. Führt regini.exe aus (umgeht UCPD)
+6. Löscht den verarbeiteten Request
+7. Schreibt Ergebnis ins EventLog
+
+### EventLog
+
+Alle Aktionen werden ins Windows EventLog geschrieben:
+
+| Event ID | Level | Beschreibung |
+|----------|-------|--------------|
+| 1000 | Information | FTA erfolgreich gesetzt |
+| 2000 | Warning | ProgId nicht gefunden |
+| 2001 | Warning | regini.exe fehlgeschlagen |
+| 3000 | Error | Unerwarteter Fehler |
+
+```powershell
+# EventLog abfragen:
+Get-EventLog -LogName Application -Source FTA-Manager -Newest 10
+```
+
+### Manueller Test
+
+```powershell
+# 1. Als User: Request erstellen
+$requestPath = "HKCU:\Software\FTA-Manager\Requests"
+if (-not (Test-Path $requestPath)) { New-Item -Path $requestPath -Force | Out-Null }
+Set-ItemProperty -Path $requestPath -Name ".pdf" -Value "ChromePDF"
+
+# 2. Als Admin: Service-Script manuell ausführen
+& "C:\Program Files\FTA-Manager\FTA-Manager-Service.ps1" -Verbose
+
+# 3. Prüfen: FTA gesetzt?
+Import-Module .\FTA-Manager.psd1
+Get-FTA -Extension .pdf
+
+# 4. Prüfen: Request gelöscht?
+Get-ItemProperty "HKCU:\Software\FTA-Manager\Requests" -ErrorAction SilentlyContinue
+
+# 5. Prüfen: EventLog
+Get-EventLog -LogName Application -Source FTA-Manager -Newest 5
+```
+
+### Vorteile gegenüber anderen Methoden
+
+| Methode | Admin erforderlich? | UCPD-Bypass? | Bestehende User? |
+|---------|---------------------|--------------|------------------|
+| Set-FTA (Standard) | Nein | ❌ Nein | ✅ Ja |
+| Set-FTA-Regini.ps1 | ✅ Ja | ✅ Ja | ✅ Ja |
+| DISM Import | ✅ Ja | ✅ Ja | ❌ Nur neue User |
+| GPO XML | ✅ Ja | ✅ Ja | ⚠️ Erster Login |
+| **FTA-Manager-Service** | ❌ User nein, Task ja | ✅ Ja | ✅ Ja |
+
+**Der Service kombiniert das Beste aus beiden Welten:**
+- User brauchen **keine Admin-Rechte**
+- Funktioniert für **UCPD-geschützte Extensions**
+- Wirkt auf **bestehende Benutzerprofile**
+- **Zentral verwaltbar** via GPO/Logon-Script
+- **Audit-Trail** via EventLog
+
+---
+
 ## Enterprise-Deployment (DISM)
 
-Für Unternehmensumgebungen ist der DISM-Import der empfohlene Weg:
+Für Unternehmensumgebungen ist der DISM-Import der empfohlene Weg für **neue Benutzerprofile**:
 
 ### Funktionen
 

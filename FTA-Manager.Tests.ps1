@@ -38,9 +38,9 @@ Describe "FTA-Manager Modul" {
             }
         }
 
-        It "Modul-Version ist 1.1.0" {
+        It "Modul-Version ist 1.2.0" {
             $module = Get-Module FTA-Manager
-            $module.Version.ToString() | Should -Be "1.1.0"
+            $module.Version.ToString() | Should -Be "1.2.0"
         }
     }
 }
@@ -94,9 +94,10 @@ Describe "Set-FTA" {
         It "Warnt bei geschützten Extensions ohne -Force" {
             # Nur testen wenn UCPD aktiv ist
             if (Test-UCPDEnabled) {
-                $result = Set-FTA "TestProgId" ".pdf"
+                $result = Set-FTA "TestProgId" ".pdf" -ErrorAction SilentlyContinue
                 $result.Success | Should -Be $false
-                $result.Error | Should -Be "UCPD protection active"
+                # Fehlermeldung kann deutsch oder englisch sein
+                $result.Error | Should -Match "(UCPD|geschuetzt|protected)"
             }
         }
     }
@@ -184,17 +185,19 @@ Describe "Set-PTA" {
     Context "UCPD-Schutz" {
         It "Warnt bei http ohne -Force" {
             if (Test-UCPDEnabled) {
-                $result = Set-PTA "TestProgId" "http"
+                $result = Set-PTA "TestProgId" "http" -ErrorAction SilentlyContinue
                 $result.Success | Should -Be $false
-                $result.Error | Should -Be "UCPD protection active"
+                # Fehlermeldung kann deutsch oder englisch sein
+                $result.Error | Should -Match "(UCPD|geschuetzt|protected)"
             }
         }
 
         It "Warnt bei https ohne -Force" {
             if (Test-UCPDEnabled) {
-                $result = Set-PTA "TestProgId" "https"
+                $result = Set-PTA "TestProgId" "https" -ErrorAction SilentlyContinue
                 $result.Success | Should -Be $false
-                $result.Error | Should -Be "UCPD protection active"
+                # Fehlermeldung kann deutsch oder englisch sein
+                $result.Error | Should -Match "(UCPD|geschuetzt|protected)"
             }
         }
     }
