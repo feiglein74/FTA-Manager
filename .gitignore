@@ -26,9 +26,7 @@ Thumbs.db
 .claude/
 CLAUDE.md
 
-# Procmon Logs (enthalten sensitive System-Informationen)
-tools/*.csv
-tools/*.CSV
+# Procmon Logs - jetzt via git-crypt verschlüsselt (siehe .gitattributes)
 
 # C# Build Artefakte
 bin/

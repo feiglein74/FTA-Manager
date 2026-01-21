@@ -25,3 +25,7 @@
 *.exe binary
 *.dll binary
 *.pdb binary
+
+# git-crypt: Verschlüsselte Dateien (sensitive Logs)
+tools/*.csv filter=git-crypt diff=git-crypt
+tools/*.CSV filter=git-crypt diff=git-crypt
