@@ -1,4 +1,4 @@
-#Requires -Modules Pester
+﻿#Requires -Modules Pester
 <#
 .SYNOPSIS
     Pester-Tests für das FTA-Manager Modul
@@ -104,8 +104,8 @@ Describe "Set-FTA" {
 
     Context "Rückgabewerte" {
         It "Gibt Objekt mit Success-Property zurück" {
-            $result = Set-FTA "Applications\notepad.exe" ".testfta123" -WhatIf
             # Bei -WhatIf wird nichts ausgeführt, aber auch kein Fehler
+            { Set-FTA "Applications\notepad.exe" ".testfta123" -WhatIf } | Should -Not -Throw
         }
     }
 }
@@ -125,7 +125,6 @@ Describe "Remove-FTA" {
 Describe "Get-AllFTA" {
     Context "Funktionalität" {
         It "Gibt Array oder null zurück" {
-            $result = Get-AllFTA
             # Funktion wirft keinen Fehler und gibt entweder null oder eine Sammlung zurück
             { Get-AllFTA } | Should -Not -Throw
         }
@@ -218,7 +217,6 @@ Describe "Remove-PTA" {
 Describe "Get-AllPTA" {
     Context "Funktionalität" {
         It "Gibt Array oder null zurück" {
-            $result = Get-AllPTA
             # Funktion wirft keinen Fehler und gibt entweder null oder eine Sammlung zurück
             { Get-AllPTA } | Should -Not -Throw
         }
@@ -357,8 +355,8 @@ Describe "Find-ProgIdForExtension" {
 Describe "Integrationstests" {
     Context "FTA Workflow" {
         BeforeAll {
-            $testExtension = ".ftatestext123"
-            $testProgId = "Applications\notepad.exe"
+            $script:testExtension = ".ftatestext123"
+            $script:testProgId = "Applications\notepad.exe"
         }
 
         AfterAll {
@@ -390,8 +388,8 @@ Describe "Integrationstests" {
 
     Context "PTA Workflow (nicht-geschützte Protokolle)" {
         BeforeAll {
-            $testProtocol = "ptatesprotocol123"
-            $testProgId = "TestProgId"
+            $script:testProtocol = "ptatesprotocol123"
+            $script:testProgId = "TestProgId"
         }
 
         AfterAll {

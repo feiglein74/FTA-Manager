@@ -419,6 +419,8 @@ function Set-UserChoiceViaRegini {
         Requires Administrator privileges!
         Based on reverse-engineering of PDF-XChange Editor (January 2026)
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal helper; ShouldProcess is exposed on the public Set-FTA/Set-PTA cmdlets.')]
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -705,6 +707,8 @@ function Get-RegistryUserChoice {
 }
 
 function Set-RegistryUserChoice {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal helper; ShouldProcess is exposed on the public Set-FTA/Set-PTA cmdlets.')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -816,6 +820,8 @@ function Set-RegistryUserChoice {
 }
 
 function Set-ApplicationAssociationToast {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal helper; ShouldProcess is exposed on the public Set-FTA/Set-PTA cmdlets.')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -1981,6 +1987,8 @@ function Disable-UCPDSafely {
     .NOTES
         Requires Administrator privileges and system reboot to take effect
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'LogPath',
+        Justification = 'Used inside the nested Write-OperationLog closure; analyzer does not track that scope.')]
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [switch]$Force,
@@ -2001,7 +2009,7 @@ function Disable-UCPDSafely {
     }
 
     # Helper function to write log
-    function Write-Log {
+    function Write-OperationLog {
         param([string]$Message)
         $logEntry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
         Write-Verbose $logEntry
@@ -2010,14 +2018,14 @@ function Disable-UCPDSafely {
         }
     }
 
-    Write-Log "Starting Disable-UCPDSafely operation"
+    Write-OperationLog "Starting Disable-UCPDSafely operation"
 
     # Check admin
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
         $result.Message = "Administrator privileges required"
         Write-Error $result.Message
-        Write-Log "FAILED: $($result.Message)"
+        Write-OperationLog"FAILED: $($result.Message)"
         return $result
     }
 
@@ -2026,7 +2034,7 @@ function Disable-UCPDSafely {
     if ($result.IsWindowsServer) {
         $result.Success = $true
         $result.Message = "Windows Server detected - UCPD not present, no action needed"
-        Write-Log $result.Message
+        Write-OperationLog$result.Message
         return $result
     }
 
@@ -2035,7 +2043,7 @@ function Disable-UCPDSafely {
     if (-not $result.UCPDWasEnabled) {
         $result.Success = $true
         $result.Message = "UCPD is already disabled"
-        Write-Log $result.Message
+        Write-OperationLog$result.Message
         return $result
     }
 
@@ -2048,24 +2056,24 @@ function Disable-UCPDSafely {
         $edrNames = ($result.EDRProducts -join ", ")
         $result.Message = "EDR solution(s) detected: $edrNames. Use -Force to proceed anyway."
         Write-Warning $result.Message
-        Write-Log "WARNING: $($result.Message)"
+        Write-OperationLog"WARNING: $($result.Message)"
         return $result
     }
 
     # Perform the disable operation
     if ($PSCmdlet.ShouldProcess("UCPD Driver", "Disable")) {
-        Write-Log "Disabling UCPD driver..."
+        Write-OperationLog"Disabling UCPD driver..."
 
         $disableResult = Disable-UCPD -Force:$Force
         if ($disableResult) {
             $result.Success = $true
             $result.RebootRequired = $true
             $result.Message = "UCPD disabled successfully. Reboot required for changes to take effect."
-            Write-Log "SUCCESS: $($result.Message)"
+            Write-OperationLog"SUCCESS: $($result.Message)"
         }
         else {
             $result.Message = "Failed to disable UCPD driver"
-            Write-Log "FAILED: $($result.Message)"
+            Write-OperationLog"FAILED: $($result.Message)"
         }
     }
 
@@ -2095,6 +2103,8 @@ function Enable-UCPDSafely {
     .NOTES
         Requires Administrator privileges and system reboot to take effect
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'LogPath',
+        Justification = 'Used inside the nested Write-OperationLog closure; analyzer does not track that scope.')]
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter()]
@@ -2111,7 +2121,7 @@ function Enable-UCPDSafely {
     }
 
     # Helper function to write log
-    function Write-Log {
+    function Write-OperationLog {
         param([string]$Message)
         $logEntry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
         Write-Verbose $logEntry
@@ -2120,14 +2130,14 @@ function Enable-UCPDSafely {
         }
     }
 
-    Write-Log "Starting Enable-UCPDSafely operation"
+    Write-OperationLog "Starting Enable-UCPDSafely operation"
 
     # Check admin
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
         $result.Message = "Administrator privileges required"
         Write-Error $result.Message
-        Write-Log "FAILED: $($result.Message)"
+        Write-OperationLog"FAILED: $($result.Message)"
         return $result
     }
 
@@ -2136,7 +2146,7 @@ function Enable-UCPDSafely {
     if ($result.IsWindowsServer) {
         $result.Success = $true
         $result.Message = "Windows Server detected - UCPD not present, no action needed"
-        Write-Log $result.Message
+        Write-OperationLog$result.Message
         return $result
     }
 
@@ -2145,24 +2155,24 @@ function Enable-UCPDSafely {
     if ($result.UCPDWasEnabled) {
         $result.Success = $true
         $result.Message = "UCPD is already enabled"
-        Write-Log $result.Message
+        Write-OperationLog$result.Message
         return $result
     }
 
     # Perform the enable operation
     if ($PSCmdlet.ShouldProcess("UCPD Driver", "Enable")) {
-        Write-Log "Enabling UCPD driver..."
+        Write-OperationLog"Enabling UCPD driver..."
 
         $enableResult = Enable-UCPD
         if ($enableResult) {
             $result.Success = $true
             $result.RebootRequired = $true
             $result.Message = "UCPD enabled successfully. Reboot required for changes to take effect."
-            Write-Log "SUCCESS: $($result.Message)"
+            Write-OperationLog"SUCCESS: $($result.Message)"
         }
         else {
             $result.Message = "Failed to enable UCPD driver"
-            Write-Log "FAILED: $($result.Message)"
+            Write-OperationLog"FAILED: $($result.Message)"
         }
     }
 

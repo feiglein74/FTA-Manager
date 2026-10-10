@@ -7,7 +7,6 @@ param(
 )
 
 $keyPath = 'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice'
-$fullPath = "HKCU:\$keyPath"
 
 Write-Host "============================================" -ForegroundColor Yellow
 Write-Host " DENY-ACL Entfernung fuer UserChoice" -ForegroundColor Yellow

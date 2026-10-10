@@ -374,6 +374,8 @@ function Set-UserChoiceViaReginiService {
     .SYNOPSIS
         Sets UserChoice via regini.exe for a specific user SID
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal service worker; runs unattended from a scheduled task, no interactive confirmation.')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -513,6 +515,8 @@ function Remove-FTARequest {
     .SYNOPSIS
         Removes a processed request from the queue
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal service worker; runs unattended from a scheduled task, no interactive confirmation.')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]

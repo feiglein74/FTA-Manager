@@ -39,6 +39,8 @@
     Requires: Administrator privileges
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+    Justification = 'Script-scope parameters are consumed inside the Install/Uninstall functions.')]
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Install')]
 param(
     [Parameter(ParameterSetName = 'Install')]
@@ -107,6 +109,9 @@ function Test-TaskExists {
 # ============================================================================
 
 function Uninstall-FTAManagerService {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
     Write-Status "Uninstalling FTA-Manager-Service..." -Type Info
 
     # Remove Scheduled Task
@@ -140,6 +145,9 @@ function Uninstall-FTAManagerService {
 # ============================================================================
 
 function Install-FTAManagerService {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
     Write-Status "Installing FTA-Manager-Service..." -Type Info
 
     # Locate source script
