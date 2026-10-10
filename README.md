@@ -1,5 +1,40 @@
 # FTA-Manager
 
+Set Windows **file type** and **protocol** associations from the command line. FTA-Manager computes the UserChoice hash Windows has required since Windows 8, and detects and handles **UCPD-protected** items (`.pdf`, `http`, `https`) on Windows 10/11 — where `assoc`/`ftype` and plain registry writes no longer work.
+
+![License](https://img.shields.io/github/license/feiglein74/FTA-Manager)
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
+![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.7.2-512BD4)
+
+Built for **enterprise logon scripts**: assign default apps for file extensions and URL protocols programmatically, per user, at scale. Ships as a PowerShell module and an optional standalone `SetFTA.exe`.
+
+## Example
+
+```powershell
+Import-Module .\FTA-Manager.psd1
+
+Set-FTA "MSEdgePDF" ".pdf"      # open PDFs with Microsoft Edge
+Set-PTA "ChromeHTML" "https"    # make Chrome the default browser
+Get-FTA ".pdf"                  # -> MSEdgePDF
+```
+
+## Quickstart
+
+```powershell
+Import-Module .\FTA-Manager.psd1
+Set-FTA "<ProgId>" ".<ext>"
+```
+
+- Find a ProgId for an extension: `Find-ProgIdForExtension ".pdf"`
+- UCPD-protected items (`.pdf`, `.htm`, `http`, `https`) require an **elevated** shell; the module then uses the `regini.exe` method automatically. See the German section below for details.
+
+> **Detailed documentation is in German** · Die ausführliche Dokumentation steht unten auf Deutsch.
+
+---
+
+## FTA-Manager (deutsche Dokumentation)
+
 PowerShell-Modul zur Verwaltung von Windows File Type Associations (FTA) und Protocol Associations (PTA).
 
 ## Übersicht

@@ -11,19 +11,22 @@
     GUID              = 'f8a7c3e1-5b2d-4a6f-9c8e-1d3b5a7f9e2c'
 
     # Author of this module
-    Author            = 'FTA-Manager Project'
+    Author            = 'Sascha Feig'
 
     # Company or vendor of this module
     CompanyName       = ''
 
     # Copyright statement for this module
-    Copyright         = '(c) 2024. MIT License.'
+    Copyright         = '(c) 2024-2026 Sascha Feig. MIT License.'
 
     # Description of the functionality provided by this module
     Description       = 'Manage Windows File Type Associations (FTA) and Protocol Associations (PTA) by computing the correct UserChoice hash. Supports Windows 10/11 including UCPD protection detection.'
 
     # Minimum version of the PowerShell engine required by this module
     PowerShellVersion = '5.1'
+
+    # Compatible PowerShell editions
+    CompatiblePSEditions = @('Desktop')
 
     # Functions to export from this module
     FunctionsToExport = @(
@@ -75,13 +78,13 @@
     PrivateData       = @{
         PSData = @{
             # Tags applied to this module
-            Tags         = @('FileTypeAssociation', 'FTA', 'ProtocolAssociation', 'Windows', 'Registry', 'UserChoice')
+            Tags         = @('FileTypeAssociation', 'FTA', 'ProtocolAssociation', 'PTA', 'Windows', 'Registry', 'UserChoice', 'UCPD', 'DefaultApps', 'Sysadmin', 'LogonScript')
 
             # A URL to the license for this module
-            LicenseUri   = ''
+            LicenseUri   = 'https://github.com/feiglein74/FTA-Manager/blob/master/LICENSE'
 
             # A URL to the main website for this project
-            ProjectUri   = ''
+            ProjectUri   = 'https://github.com/feiglein74/FTA-Manager'
 
             # Release notes for this module
             ReleaseNotes = @'
